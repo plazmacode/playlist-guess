@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { type ProcessedSong } from "./SetupGame";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -41,7 +41,8 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
   // Guessing State
   const [open, setOpen] = useState(false);
   const [guess, setGuess] = useState("");
-  const [hasResolved, setHasResolved] = useState(false); // True when song is beaten or failed
+  const [searchQuery, setSearchQuery] = useState("");
+  const [hasResolved, setHasResolved] = useState(false); 
   const [isCorrect, setIsCorrect] = useState(false);
   const [results, setResults] = useState<GameResult[]>([]);
 
@@ -51,6 +52,7 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
   // Reset state for new song
   useEffect(() => {
     setGuess("");
+    setSearchQuery(""); // <-- Clear search on new song
     setHasResolved(false);
     setIsCorrect(false);
     setIsPlaying(false);
@@ -63,11 +65,23 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
     }
   }, [volume]);
 
+  const visibleSongs = useMemo(() => {
+    if (!searchQuery) {
+      return allSongs.slice(0, 50); // Just show the first 50 when empty
+    }
+    
+    const lowerQuery = searchQuery.toLowerCase();
+    return allSongs
+      .filter((song) => song.title.toLowerCase().includes(lowerQuery))
+      .slice(0, 50); // Never return more than 50 items to the DOM
+  }, [allSongs, searchQuery]);
+
+
   const handleLoadedMetadata = () => {
     if (audioRef.current) {
       audioRef.current.volume = volume;
       const totalDuration = audioRef.current.duration;
-      const minStart = totalDuration * 0.2;  // 20% in to skip intro's (some genre's especially have less distinguishable intros)
+      const minStart = totalDuration * 0.2; // 20% in to skip intro's (some genre's especially have less distinguishable intros)
       
       // Calculate max start based on the MAXIMUM interval (10s) so we never run out of song
       const maxStart = totalDuration * 0.8 - INTERVALS[INTERVALS.length - 1]; 
@@ -108,7 +122,7 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
     pauseAudio();
     setHasResolved(true);
     setIsCorrect(correct);
-    
+
     // Save the result
     setResults(prev => [
       ...prev, 
@@ -130,7 +144,8 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
       // Wrong guess!
       if (attemptStep < maxAttempts - 1) {
         setAttemptStep(prev => prev + 1);
-        setGuess(""); // Clear input for next try
+        setGuess("");
+        setSearchQuery("");
       } else {
         // Out of attempts
         resolveSong(false, guess);
@@ -142,6 +157,7 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
     if (attemptStep < maxAttempts - 1) {
       setAttemptStep(prev => prev + 1);
       setGuess("");
+      setSearchQuery("");
     } else {
       resolveSong(false, "Skipped");
     }
@@ -157,15 +173,11 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
 
   return (
     <div className="flex flex-col items-center mt-12 px-80">
-      {/* Header */}
       <div className="flex justify-between w-full font-semibold mb-4">
         <span>Song {currentIndex + 1} of {playlist.length}</span>
-        <span>
-          Attempt {hasResolved ? attemptStep + 1 : attemptStep + 1} of {maxAttempts}
-        </span>
+        <span>Attempt {hasResolved ? attemptStep + 1 : attemptStep + 1} of {maxAttempts}</span>
       </div>
 
-      {/* Interval Progress Bar Visualization */}
       <div className="w-full flex h-3 bg-secondary rounded-full mb-8 gap-1">
         {INTERVALS.map((time, idx) => (
           <div 
@@ -232,12 +244,16 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
             </Button>
           </PopoverTrigger>
           <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0">
-            <Command>
-              <CommandInput placeholder="Search songs..." />
+            <Command shouldFilter={false}>
+              <CommandInput 
+                placeholder="Search songs..." 
+                value={searchQuery}
+                onValueChange={setSearchQuery} // Bind search query state
+              />
               <CommandList>
                 <CommandEmpty>No song found.</CommandEmpty>
                 <CommandGroup>
-                  {allSongs.map((song) => (
+                  {visibleSongs.map((song) => (
                     <CommandItem
                       key={song.id}
                       value={song.title}
@@ -256,10 +272,9 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
           </PopoverContent>
         </Popover>
 
-        {/* Action Buttons Logic */}
         {!hasResolved ? (
           <div className="flex gap-4 w-full">
-            <Button onClick={handleSubmit} disabled={!guess} className="flex-1 h-12 text-lg">
+            <Button onClick={handleSubmit} disabled={!guess} className="flex-1 h-12 text-lg bg-purple-800 text-white">
               Submit Guess
             </Button>
             <Button onClick={handleSkip} variant="secondary" className="w-32 h-12 text-lg">
