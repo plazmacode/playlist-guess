@@ -105,6 +105,13 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
     }
   };
 
+  const handleSkip = () => {
+    pauseAudio();
+    setHasSubmitted(true);
+    setIsCorrect(false);
+    setGuess("");
+  };
+
   return (
     <div className="flex flex-col items-center mt-12 px-80">
       <div className="flex justify-between w-full text-muted-foreground font-semibold mb-4">
@@ -165,9 +172,7 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
                     <CommandItem
                       key={song.id}
                       value={song.title}
-                      onSelect={(currentValue) => {
-                        // Shadcn command items return lowercase values by default, 
-                        // so we use the actual song.title from our data
+                      onSelect={() => {
                         setGuess(song.title);
                         setOpen(false);
                       }}
@@ -186,19 +191,26 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
           </PopoverContent>
         </Popover>
 
-        {/* Submit / Next Button Logic */}
+        {/* Action Buttons Logic */}
         {!hasSubmitted ? (
-          <Button onClick={handleSubmit} disabled={!guess} className="w-full h-12 text-lg">
-            Submit Guess
-          </Button>
+          <div className="flex gap-4 w-full">
+            <Button onClick={handleSubmit} disabled={!guess} className="flex-1 h-12 text-lg">
+              Submit Guess
+            </Button>
+            <Button onClick={handleSkip} variant="secondary" className="w-24 h-12 text-lg">
+              Skip
+            </Button>
+          </div>
         ) : (
           <div className="flex flex-col items-center gap-4 w-full animate-in fade-in zoom-in duration-300">
             <div className={`text-2xl font-bold ${isCorrect ? "text-green-500" : "text-red-500"}`}>
-              {isCorrect ? "Correct!" : "Incorrect!"}
+              {isCorrect ? "Correct!" : "Skipped / Incorrect"}
             </div>
+            
             {!isCorrect && (
               <p className="text-muted-foreground">The answer was: <span className="text-foreground font-semibold">{currentSong.title}</span></p>
             )}
+
             <Button onClick={nextSong} className="w-full h-12 text-lg mt-4">
               {currentIndex < playlist.length - 1 ? "Next Song" : "Finish Game"}
             </Button>
