@@ -1,11 +1,14 @@
 import { useState } from "react";
 import SetupGame, { type ProcessedSong } from "./components/SetupGame";
-import Game from "./components/Game";
+import Game, { type GameResult } from "./components/Game";
+import EndScreen from "./components/EndScreen";
 
 export function App() {
   const [gameState, setGameState] = useState<"setup" | "playing" | "finished">("setup");
   const [allSongs, setAllSongs] = useState<ProcessedSong[]>([]);
   const [gamePlaylist, setGamePlaylist] = useState<ProcessedSong[]>([]);
+
+  const [gameResults, setGameResults] = useState<GameResult[]>([]);
 
   const handleStartGame = (uploadedSongs: ProcessedSong[]) => {
     // 1. Save all songs for the suggestions dropdown
@@ -19,6 +22,11 @@ export function App() {
     setGameState("playing");
   };
 
+  const handleFinishGame = (results: GameResult[]) => {
+    setGameResults(results);
+    setGameState("finished");
+  };
+
   return (
     <div>
       {gameState === "setup" && (
@@ -29,20 +37,15 @@ export function App() {
         <Game 
           playlist={gamePlaylist} 
           allSongs={allSongs} 
-          onFinish={() => setGameState("finished")} 
+          onFinish={handleFinishGame} 
         />
       )}
 
       {gameState === "finished" && (
-        <div className="text-center space-y-6 mt-24">
-          <h1 className="text-4xl font-bold">Game Over!</h1>
-          <button 
-            onClick={() => setGameState("setup")}
-            className="px-6 py-2 bg-primary text-primary-foreground rounded-md"
-          >
-            Play Again
-          </button>
-        </div>
+        <EndScreen 
+          results={gameResults} 
+          onRestart={() => setGameState("setup")} 
+        />
       )}
     </div>
   );

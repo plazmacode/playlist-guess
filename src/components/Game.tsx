@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { type ProcessedSong } from "./SetupGame";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
-import { Check, ChevronsUpDown, Play, RotateCcw, Volume2 } from "lucide-react";
+import { Check, ChevronsUpDown, Play, Volume2, FastForward } from "lucide-react";
 import {
   Command,
   CommandEmpty,
@@ -11,41 +11,50 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+
+const INTERVALS = [0.5, 1, 2, 5, 10]; 
+
+export interface GameResult {
+  song: ProcessedSong;
+  guessedCorrectly: boolean;
+  attemptsUsed: number;
+  userGuess: string | null;
+}
 
 interface GameProps {
   playlist: ProcessedSong[];
   allSongs: ProcessedSong[];
-  onFinish: () => void;
+  onFinish: (results: GameResult[]) => void;
 }
 
 export default function Game({ playlist, allSongs, onFinish }: GameProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [snippetStart, setSnippetStart] = useState(0);
-  
   const [volume, setVolume] = useState(0.5);
+
+  const [attemptStep, setAttemptStep] = useState(0); 
+  const currentAllowedTime = INTERVALS[attemptStep];
+  const maxAttempts = INTERVALS.length;
 
   // Guessing State
   const [open, setOpen] = useState(false);
   const [guess, setGuess] = useState("");
-  const [hasSubmitted, setHasSubmitted] = useState(false);
+  const [hasResolved, setHasResolved] = useState(false); // True when song is beaten or failed
   const [isCorrect, setIsCorrect] = useState(false);
-  const [score, setScore] = useState(0);
+  const [results, setResults] = useState<GameResult[]>([]);
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const currentSong = playlist[currentIndex];
 
-  // Reset state when the song changes
+  // Reset state for new song
   useEffect(() => {
     setGuess("");
-    setHasSubmitted(false);
+    setHasResolved(false);
     setIsCorrect(false);
     setIsPlaying(false);
+    setAttemptStep(0);
   }, [currentIndex]);
 
   useEffect(() => {
@@ -54,16 +63,16 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
     }
   }, [volume]);
 
-  // Calculate the random 10s snippet once the audio metadata loads
   const handleLoadedMetadata = () => {
     if (audioRef.current) {
       audioRef.current.volume = volume;
       const totalDuration = audioRef.current.duration;
-      const minStart = totalDuration * 0.2; // 20% in
-      const maxStart = totalDuration * 0.8 - 10; // 80% in, minus the 10s playtime
+      const minStart = totalDuration * 0.2;  // 20% in to skip intro's (some genre's especially have less distinguishable intros)
+      
+      // Calculate max start based on the MAXIMUM interval (10s) so we never run out of song
+      const maxStart = totalDuration * 0.8 - INTERVALS[INTERVALS.length - 1]; 
 
       let start = 0;
-      // Safety check: if the song is really short, just start at the beginning
       if (maxStart > minStart) {
         start = Math.random() * (maxStart - minStart) + minStart;
       }
@@ -80,13 +89,14 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
   };
 
   const handleTimeUpdate = () => {
-    // Pause after 10 seconds if guess hasn't been submitted
-    if (!hasSubmitted && audioRef.current && audioRef.current.currentTime >= snippetStart + 10) {
+    // Pause the audio if it goes at current interval.
+    // Only for when it hasn't been resolved yet
+    if (!hasResolved && audioRef.current && audioRef.current.currentTime >= snippetStart + currentAllowedTime) {
       audioRef.current.pause();
       setIsPlaying(false);
     }
   };
-  
+
   const pauseAudio = () => {
     if (audioRef.current) {
       audioRef.current.pause();
@@ -94,15 +104,46 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
     }
   };
 
+  const resolveSong = (correct: boolean, finalGuess: string | null) => {
+    pauseAudio();
+    setHasResolved(true);
+    setIsCorrect(correct);
+    
+    // Save the result
+    setResults(prev => [
+      ...prev, 
+      {
+        song: currentSong,
+        guessedCorrectly: correct,
+        attemptsUsed: attemptStep + 1,
+        userGuess: finalGuess
+      }
+    ]);
+  };
+
   const handleSubmit = () => {
     if (!guess) return;
-    pauseAudio();
-    setHasSubmitted(true);
+    
     if (guess === currentSong.title) {
-      setIsCorrect(true);
-      setScore(s => s + 1);
+      resolveSong(true, guess);
     } else {
-      setIsCorrect(false);
+      // Wrong guess!
+      if (attemptStep < maxAttempts - 1) {
+        setAttemptStep(prev => prev + 1);
+        setGuess(""); // Clear input for next try
+      } else {
+        // Out of attempts
+        resolveSong(false, guess);
+      }
+    }
+  };
+
+  const handleSkip = () => {
+    if (attemptStep < maxAttempts - 1) {
+      setAttemptStep(prev => prev + 1);
+      setGuess("");
+    } else {
+      resolveSong(false, "Skipped");
     }
   };
 
@@ -110,22 +151,33 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
     if (currentIndex < playlist.length - 1) {
       setCurrentIndex(c => c + 1);
     } else {
-      onFinish();
+      onFinish(results);
     }
-  };
-
-  const handleSkip = () => {
-    pauseAudio();
-    setHasSubmitted(true);
-    setIsCorrect(false);
-    setGuess("");
   };
 
   return (
     <div className="flex flex-col items-center mt-12 px-80">
-      <div className="flex justify-between w-full text-muted-foreground font-semibold mb-4">
+      {/* Header */}
+      <div className="flex justify-between w-full font-semibold mb-4">
         <span>Song {currentIndex + 1} of {playlist.length}</span>
-        <span>Score: {score}</span>
+        <span>
+          Attempt {hasResolved ? attemptStep + 1 : attemptStep + 1} of {maxAttempts}
+        </span>
+      </div>
+
+      {/* Interval Progress Bar Visualization */}
+      <div className="w-full flex h-3 bg-secondary rounded-full mb-8 gap-1">
+        {INTERVALS.map((time, idx) => (
+          <div 
+            key={idx} 
+            className={`h-full transition-colors duration-300 ${
+              idx <= attemptStep 
+                ? (hasResolved && isCorrect && idx === attemptStep) ? "bg-green-500" : "bg-primary" 
+                : "bg-secondary-foreground/20"
+            }`}
+            style={{ width: `${(time / INTERVALS[INTERVALS.length - 1]) * 100}%` }}
+          />
+        ))}
       </div>
 
       <audio
@@ -134,28 +186,22 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
         onLoadedMetadata={handleLoadedMetadata}
         onTimeUpdate={handleTimeUpdate}
         onEnded={() => setIsPlaying(false)}
-        controls={hasSubmitted} 
-        className={`w-full my-4 ${hasSubmitted ? "block" : "hidden"}`}
+        controls={hasResolved} 
+        className={`w-full my-4 ${hasResolved ? "block" : "hidden"}`}
       />
 
-     {/* Custom Audio Controls (Only show BEFORE guessing) */}
-      {!hasSubmitted && (
+      {/* Custom Audio Controls (Only show BEFORE guessing is resolved) */}
+      {!hasResolved && (
         <div className="flex flex-col w-full gap-4 items-center">
+          <div className="text-xl font-bold mb-2">
+            Playing {currentAllowedTime}s snippet
+          </div>
           <div className="flex gap-4">
-            <Button 
-              size="lg" 
-              onClick={playSnippet} 
-              disabled={isPlaying}
-              className="w-48 text-lg"
-            >
+            <Button size="lg" onClick={playSnippet} disabled={isPlaying} className="w-48 h-14 text-lg">
               <Play className="mr-2 h-5 w-5" /> 
-              {isPlaying ? "Playing..." : "Play Snippet"}
-            </Button>
-            <Button size="lg" variant="outline" onClick={playSnippet} disabled={isPlaying}>
-              <RotateCcw className="h-5 w-5" />
+              {isPlaying ? "Playing..." : "Play"}
             </Button>
           </div>
-          {/* Custom Volume Slider */}
           <div className="flex items-center gap-4 w-full max-w-[250px] mt-2">
             <Volume2 className="h-5 w-5 text-muted-foreground" />
             <Slider
@@ -179,7 +225,7 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
               role="combobox"
               aria-expanded={open}
               className="w-full justify-between h-12 text-lg"
-              disabled={hasSubmitted}
+              disabled={hasResolved}
             >
               {guess ? guess : "Search for your guess..."}
               <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
@@ -200,11 +246,7 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
                         setOpen(false);
                       }}
                     >
-                      <Check
-                        className={`mr-2 h-4 w-4 ${
-                          guess === song.title ? "opacity-100" : "opacity-0"
-                        }`}
-                      />
+                      <Check className={`mr-2 h-4 w-4 ${guess === song.title ? "opacity-100" : "opacity-0"}`} />
                       {song.title}
                     </CommandItem>
                   ))}
@@ -215,19 +257,19 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
         </Popover>
 
         {/* Action Buttons Logic */}
-        {!hasSubmitted ? (
+        {!hasResolved ? (
           <div className="flex gap-4 w-full">
             <Button onClick={handleSubmit} disabled={!guess} className="flex-1 h-12 text-lg">
               Submit Guess
             </Button>
-            <Button onClick={handleSkip} variant="secondary" className="w-24 h-12 text-lg">
-              Skip
+            <Button onClick={handleSkip} variant="secondary" className="w-32 h-12 text-lg">
+              {attemptStep < maxAttempts - 1 ? "Skip (+Time)" : "Give Up"}
             </Button>
           </div>
         ) : (
           <div className="flex flex-col items-center gap-4 w-full animate-in fade-in zoom-in duration-300">
             <div className={`text-2xl font-bold ${isCorrect ? "text-green-500" : "text-red-500"}`}>
-              {isCorrect ? "Correct!" : "Skipped / Incorrect"}
+              {isCorrect ? `Correct in ${attemptStep + 1} attempts!` : "Out of attempts!"}
             </div>
             
             {!isCorrect && (
@@ -235,7 +277,8 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
             )}
 
             <Button onClick={nextSong} className="w-full h-12 text-lg mt-4">
-              {currentIndex < playlist.length - 1 ? "Next Song" : "Finish Game"}
+              {currentIndex < playlist.length - 1 ? "Next Song" : "See Results"}
+              <FastForward className="ml-2 h-5 w-5" />
             </Button>
           </div>
         )}
