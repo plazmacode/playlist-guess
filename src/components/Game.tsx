@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from "react";
 import { type ProcessedSong } from "./SetupGame";
 import { Button } from "@/components/ui/button";
-import { Check, ChevronsUpDown, Play, RotateCcw } from "lucide-react";
+import { Slider } from "@/components/ui/slider";
+import { Check, ChevronsUpDown, Play, RotateCcw, Volume2 } from "lucide-react";
 import {
   Command,
   CommandEmpty,
@@ -27,6 +28,8 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [snippetStart, setSnippetStart] = useState(0);
   
+  const [volume, setVolume] = useState(0.5);
+
   // Guessing State
   const [open, setOpen] = useState(false);
   const [guess, setGuess] = useState("");
@@ -45,9 +48,16 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
     setIsPlaying(false);
   }, [currentIndex]);
 
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.volume = volume;
+    }
+  }, [volume]);
+
   // Calculate the random 10s snippet once the audio metadata loads
   const handleLoadedMetadata = () => {
     if (audioRef.current) {
+      audioRef.current.volume = volume;
       const totalDuration = audioRef.current.duration;
       const minStart = totalDuration * 0.2; // 20% in
       const maxStart = totalDuration * 0.8 - 10; // 80% in, minus the 10s playtime
@@ -70,8 +80,7 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
   };
 
   const handleTimeUpdate = () => {
-    // ONLY pause after 10 seconds if they haven't submitted an answer yet.
-    // Once submitted, they are free to listen to the whole thing.
+    // Pause after 10 seconds if guess hasn't been submitted
     if (!hasSubmitted && audioRef.current && audioRef.current.currentTime >= snippetStart + 10) {
       audioRef.current.pause();
       setIsPlaying(false);
@@ -131,19 +140,33 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
 
      {/* Custom Audio Controls (Only show BEFORE guessing) */}
       {!hasSubmitted && (
-        <div className="flex gap-4">
-          <Button 
-            size="lg" 
-            onClick={playSnippet} 
-            disabled={isPlaying}
-            className="w-48 text-lg"
-          >
-            <Play className="mr-2 h-5 w-5" /> 
-            {isPlaying ? "Playing..." : "Play Snippet"}
-          </Button>
-          <Button size="lg" variant="outline" onClick={playSnippet} disabled={isPlaying}>
-            <RotateCcw className="h-5 w-5" />
-          </Button>
+        <div className="flex flex-col w-full gap-4 items-center">
+          <div className="flex gap-4">
+            <Button 
+              size="lg" 
+              onClick={playSnippet} 
+              disabled={isPlaying}
+              className="w-48 text-lg"
+            >
+              <Play className="mr-2 h-5 w-5" /> 
+              {isPlaying ? "Playing..." : "Play Snippet"}
+            </Button>
+            <Button size="lg" variant="outline" onClick={playSnippet} disabled={isPlaying}>
+              <RotateCcw className="h-5 w-5" />
+            </Button>
+          </div>
+          {/* Custom Volume Slider */}
+          <div className="flex items-center gap-4 w-full max-w-[250px] mt-2">
+            <Volume2 className="h-5 w-5 text-muted-foreground" />
+            <Slider
+              defaultValue={[0.5]}
+              max={1}
+              step={0.01}
+              value={[volume]}
+              onValueChange={(vals) => setVolume(vals[0])}
+              className="w-full"
+            />
+          </div>
         </div>
       )}
 

@@ -79,7 +79,7 @@ export function SetupGame({ onStart }: SetupGameProps) {
   return (
     <div>
       <div className="flex justify-center items-center">
-        <h1 className="text-4xl mt-12">Upload some songs</h1>
+        <h1 className="text-4xl mt-12 mb-4">Upload some songs</h1>
       </div>
       <div
       onClick={handleBoxClick}
@@ -119,11 +119,11 @@ export function SetupGame({ onStart }: SetupGameProps) {
 
 
       {uploadedSongs.length > 0 && (
-        <div className="mt-8 w-full max-w-2xl">
+        <div className="ml-4 mt-8 max-w-2xl">
           <h2 className="text-xl font-bold mb-4">Ready to play: {uploadedSongs.length} songs</h2>
           <ul className="space-y-2">
             {uploadedSongs.map((song) => (
-              <li key={song.id} className="p-3 border rounded bg-secondary/20">
+              <li key={song.id} className="p-3 border rounded bg-secondary/40">
                 {song.title}
               </li>
             ))}
