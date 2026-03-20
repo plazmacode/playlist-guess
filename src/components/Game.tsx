@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useMemo } from "react";
 import { type ProcessedSong } from "./SetupGame";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
-import { Check, ChevronsUpDown, Play, Volume2, FastForward } from "lucide-react";
+import { Check, ChevronsUpDown, Play, Volume2, FastForward, Loader2 } from "lucide-react";
 import {
   Command,
   CommandEmpty,
@@ -38,83 +38,149 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
   const currentAllowedTime = INTERVALS[attemptStep];
   const maxAttempts = INTERVALS.length;
 
-  // Guessing State
+  // Guessing & Loading State
   const [open, setOpen] = useState(false);
   const [guess, setGuess] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [hasResolved, setHasResolved] = useState(false); 
   const [isCorrect, setIsCorrect] = useState(false);
+  const [isReady, setIsReady] = useState(false); // Tracks if Web Audio API has decoded the track
   const [results, setResults] = useState<GameResult[]>([]);
 
+  // Web Audio API Refs (The Engine)
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const audioBufferRef = useRef<AudioBuffer | null>(null);
+  const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
+  const gainNodeRef = useRef<GainNode | null>(null);
+
+  // Native Audio Ref (Used ONLY for the full song player at the end)
   const audioRef = useRef<HTMLAudioElement>(null);
+  
   const currentSong = playlist[currentIndex];
 
-  // Reset state for new song
+  // 1. Initialize Audio Context on mount
   useEffect(() => {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!audioCtxRef.current && AudioContextClass) {
+      audioCtxRef.current = new AudioContextClass();
+    }
+  }, []);
+
+  // 2. Decode the local MP3 file into memory when the song changes
+  useEffect(() => {
+    let isCancelled = false;
+    setIsReady(false);
+    setSnippetStart(0);
     setGuess("");
-    setSearchQuery(""); // <-- Clear search on new song
+    setSearchQuery(""); 
     setHasResolved(false);
     setIsCorrect(false);
     setIsPlaying(false);
     setAttemptStep(0);
-  }, [currentIndex]);
 
-  useEffect(() => {
-    if (audioRef.current) {
-      audioRef.current.volume = volume;
+    // Stop current Web Audio playback if switching songs
+    if (sourceNodeRef.current) {
+      try { sourceNodeRef.current.stop(); } catch(e) {}
+      sourceNodeRef.current.disconnect();
     }
+
+    const loadAndDecodeAudio = async () => {
+      if (!audioCtxRef.current) return;
+
+      try {
+        // Read the raw file data
+        const arrayBuffer = await currentSong.originalFile.arrayBuffer();
+        // Decode it instantly into PCM memory (fixes all VBR/silence bugs)
+        const decodedData = await audioCtxRef.current.decodeAudioData(arrayBuffer);
+
+        if (isCancelled) return;
+
+        audioBufferRef.current = decodedData;
+
+        // Calculate a safe 20%-80% start window
+        const totalDuration = decodedData.duration;
+        const minStart = totalDuration * 0.2; 
+        const maxStart = totalDuration * 0.8 - INTERVALS[INTERVALS.length - 1]; 
+
+        let start = 0;
+        if (maxStart > minStart) {
+          start = Math.random() * (maxStart - minStart) + minStart;
+        }
+
+        setSnippetStart(start);
+        setIsReady(true);
+      } catch (error) {
+        console.error("Failed to decode audio:", error);
+      }
+    };
+
+    loadAndDecodeAudio();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [currentIndex, currentSong]);
+
+  // Sync Volume
+  useEffect(() => {
+    if (gainNodeRef.current) gainNodeRef.current.gain.value = volume;
+    if (audioRef.current) audioRef.current.volume = volume;
   }, [volume]);
 
   const visibleSongs = useMemo(() => {
-    if (!searchQuery) {
-      return allSongs.slice(0, 50); // Just show the first 50 when empty
-    }
-    
+    if (!searchQuery) return allSongs.slice(0, 50); 
     const lowerQuery = searchQuery.toLowerCase();
     return allSongs
       .filter((song) => song.title.toLowerCase().includes(lowerQuery))
-      .slice(0, 50); // Never return more than 50 items to the DOM
+      .slice(0, 50); 
   }, [allSongs, searchQuery]);
 
-
-  const handleLoadedMetadata = () => {
-    if (audioRef.current) {
-      audioRef.current.volume = volume;
-      const totalDuration = audioRef.current.duration;
-      const minStart = totalDuration * 0.2; // 20% in to skip intro's (some genre's especially have less distinguishable intros)
-      
-      // Calculate max start based on the MAXIMUM interval (10s) so we never run out of song
-      const maxStart = totalDuration * 0.8 - INTERVALS[INTERVALS.length - 1]; 
-
-      let start = 0;
-      if (maxStart > minStart) {
-        start = Math.random() * (maxStart - minStart) + minStart;
-      }
-      setSnippetStart(start);
-    }
-  };
-
+  // --- THE NEW MILLISECOND-ACCURATE PLAYER ---
   const playSnippet = () => {
-    if (audioRef.current) {
-      audioRef.current.currentTime = snippetStart;
-      audioRef.current.play();
-      setIsPlaying(true);
-    }
-  };
+    if (!audioCtxRef.current || !audioBufferRef.current) return;
 
-  const handleTimeUpdate = () => {
-    // Pause the audio if it goes at current interval.
-    // Only for when it hasn't been resolved yet
-    if (!hasResolved && audioRef.current && audioRef.current.currentTime >= snippetStart + currentAllowedTime) {
-      audioRef.current.pause();
-      setIsPlaying(false);
+    // Stop any existing overlapping sounds
+    if (sourceNodeRef.current) {
+      try { sourceNodeRef.current.stop(); } catch(e) {}
+      sourceNodeRef.current.disconnect();
     }
+
+    // Wake up the audio context if the browser suspended it
+    if (audioCtxRef.current.state === 'suspended') {
+      audioCtxRef.current.resume();
+    }
+
+    // Create a new sound source from our decoded memory
+    const source = audioCtxRef.current.createBufferSource();
+    source.buffer = audioBufferRef.current;
+
+    // Apply the volume
+    const gainNode = audioCtxRef.current.createGain();
+    gainNode.gain.value = volume;
+    gainNodeRef.current = gainNode;
+
+    source.connect(gainNode);
+    gainNode.connect(audioCtxRef.current.destination);
+
+    // .start(whenToStart, offsetInSong, durationToPlay)
+    source.start(0, snippetStart, currentAllowedTime);
+    
+    sourceNodeRef.current = source;
+    setIsPlaying(true);
+
+    // Let the API turn the button off exactly when the snippet finishes
+    source.onended = () => {
+      setIsPlaying(false);
+    };
   };
 
   const pauseAudio = () => {
+    if (sourceNodeRef.current) {
+      try { sourceNodeRef.current.stop(); } catch(e) {}
+      setIsPlaying(false);
+    }
     if (audioRef.current) {
       audioRef.current.pause();
-      setIsPlaying(false);
     }
   };
 
@@ -123,7 +189,11 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
     setHasResolved(true);
     setIsCorrect(correct);
 
-    // Save the result
+    // Seek the native audio player to the start of the snippet for easy comparison
+    if (audioRef.current) {
+      audioRef.current.currentTime = snippetStart;
+    }
+    
     setResults(prev => [
       ...prev, 
       {
@@ -141,13 +211,11 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
     if (guess === currentSong.title) {
       resolveSong(true, guess);
     } else {
-      // Wrong guess!
       if (attemptStep < maxAttempts - 1) {
         setAttemptStep(prev => prev + 1);
         setGuess("");
         setSearchQuery("");
       } else {
-        // Out of attempts
         resolveSong(false, guess);
       }
     }
@@ -192,12 +260,10 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
         ))}
       </div>
 
+      {/* The Native Audio Tag: Now ONLY used to play the full song after guessing */}
       <audio
         ref={audioRef}
         src={currentSong.previewUrl}
-        onLoadedMetadata={handleLoadedMetadata}
-        onTimeUpdate={handleTimeUpdate}
-        onEnded={() => setIsPlaying(false)}
         controls={hasResolved} 
         className={`w-full my-4 ${hasResolved ? "block" : "hidden"}`}
       />
@@ -209,9 +275,20 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
             Playing {currentAllowedTime}s snippet
           </div>
           <div className="flex gap-4">
-            <Button size="lg" onClick={playSnippet} disabled={isPlaying} className="w-48 h-14 text-lg">
-              <Play className="mr-2 h-5 w-5" /> 
-              {isPlaying ? "Playing..." : "Play"}
+            <Button size="lg" onClick={playSnippet} disabled={isPlaying || !isReady} className="w-48 h-14 text-lg">
+              {!isReady ? (
+                <>
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                  Decoding...
+                </>
+              ) : isPlaying ? (
+                "Playing..."
+              ) : (
+                <>
+                  <Play className="mr-2 h-5 w-5" /> 
+                  Play
+                </>
+              )}
             </Button>
           </div>
           <div className="flex items-center gap-4 w-full max-w-[250px] mt-2">
