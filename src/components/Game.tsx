@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, useEffect } from "react";
 import { type ProcessedSong } from "./SetupGame";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
-import { INTERVALS, calculatePoints, extractArtists, type GameResult } from "@/lib/game-utils";
+import { INTERVALS, calculatePoints, extractArtists, formatTime, type GameResult } from "@/lib/game-utils";
 import { useWebAudio } from "@/hooks/useWebAudio";
 
 interface GameProps {
@@ -51,6 +51,10 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
   // Records the exact time the user spent thinking after the first audio snippet ended.
   // This is strictly used to calculate the < 5 seconds "speed bonus" in the scoring engine.
   const firstAttemptThinkingTimeRef = useRef<number | null>(null);
+
+  // Tracks the exact millisecond the song was successfully decoded and presented to the user
+  const songStartTimeRef = useRef<number | null>(null);
+
   const currentSong = playlist[currentIndex];
 
   // We use a custom Web Audio API hook here instead of standard HTML5 <audio> tags for the guessing phase.
@@ -66,6 +70,13 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
     playbackEndedAtRef,
     resetPlayer
   } = useWebAudio(currentSong, currentAllowedTime, volume, attemptStep, INTERVALS[INTERVALS.length - 1]);
+
+  // Start the master timer for this song as soon as the Web Audio API finishes decoding it
+  useEffect(() => {
+    if (isReady && !songStartTimeRef.current) {
+      songStartTimeRef.current = Date.now();
+    }
+  }, [isReady]);
 
   // We manually filter and slice the songs here instead of letting Shadcn's <Command> component do it.
   // Shadcn's underlying `cmdk` library renders ALL items to the DOM and just hides non-matches with CSS.
@@ -87,6 +98,9 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
     setHasResolved(true);
     setIsCorrect(correct);
 
+    // Calculate total time taken from the moment it loaded to the moment they finally submitted/skipped
+    const totalTimeMs = songStartTimeRef.current ? Date.now() - songStartTimeRef.current : 0;
+
     // Sync the native <audio> player (revealed after guessing) to start exactly where the random snippet started, making it easy for the user to compare.
     if (audioRef.current) {
       audioRef.current.currentTime = snippetStart;
@@ -101,6 +115,7 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
         userGuess: finalGuess,
         guessHistory: finalHistory,
         firstAttemptThinkingTimeMs: firstAttemptThinkingTimeRef.current || 0,
+        totalTimeMs: totalTimeMs
       }
     ]);
   };
@@ -165,7 +180,8 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
       setGuessHistory([]); 
       setPastGuesses({});  
       firstAttemptThinkingTimeRef.current = null;
-      
+      songStartTimeRef.current = null;
+
       resetPlayer();
       
       setCurrentIndex(c => c + 1);
@@ -326,6 +342,11 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
               <div className="flex flex-col items-center">
                 <span className="text-sm text-muted-foreground uppercase font-semibold">Gained</span>
                 <span className="text-3xl font-bold text-primary">+{earnedPoints}</span>
+              </div>
+              <div className="w-px h-12 bg-border"></div>
+              <div className="flex flex-col items-center">
+                <span className="text-sm text-muted-foreground uppercase font-semibold">Time</span>
+                <span className="text-3xl font-bold">{formatTime(currentResult?.totalTimeMs || 0)}</span>
               </div>
               <div className="w-px h-12 bg-border"></div>
               <div className="flex flex-col items-center">

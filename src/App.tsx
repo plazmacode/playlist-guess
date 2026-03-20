@@ -1,8 +1,8 @@
 import { useState } from "react";
 import SetupGame, { type ProcessedSong } from "./components/SetupGame";
-import Game, { type GameResult } from "./components/Game";
 import EndScreen from "./components/EndScreen";
-import { shuffleArray } from "./lib/game-utils";
+import { shuffleArray, type GameResult } from "./lib/game-utils";
+import Game from "./components/Game";
 
 export function App() {
   const [gameState, setGameState] = useState<"setup" | "playing" | "finished">("setup");

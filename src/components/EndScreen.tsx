@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
-import { calculatePoints, type GameResult } from "@/lib/game-utils";
-import { CheckCircle2, XCircle, UserCheck } from "lucide-react"; // Added UserCheck for artist matches
+import { calculatePoints, formatTime, type GameResult } from "@/lib/game-utils";
+import { CheckCircle2, XCircle, UserCheck, Timer } from "lucide-react"; 
 
 interface EndScreenProps {
   results: GameResult[];
@@ -10,14 +10,20 @@ interface EndScreenProps {
 export default function EndScreen({ results, onRestart }: EndScreenProps) {
 
   const totalScore = results.reduce((sum, res) => sum + calculatePoints(res), 0);
+  const totalGameTimeMs = results.reduce((sum, res) => sum + (res.totalTimeMs || 0), 0);
 
   return (
     <div className="flex flex-col items-center mt-8 w-full max-w-3xl mx-auto px-4 pb-12">
       <h1 className="text-4xl font-bold mb-2">Game Over!</h1>
       
-      {/* Big Score Display */}
-      <div className="text-6xl font-black text-primary my-6 tracking-tighter">
-        {totalScore} <span className="text-3xl text-muted-foreground font-semibold">/ 1000</span>
+      <div className="flex flex-col items-center my-6">
+        <div className="text-6xl font-black text-primary tracking-tighter">
+          {totalScore} <span className="text-3xl text-muted-foreground font-semibold">/ 1000</span>
+        </div>
+        <div className="flex items-center gap-2 mt-2 text-muted-foreground font-semibold bg-secondary/50 px-4 py-1.5 rounded-full">
+          <Timer className="w-4 h-4" />
+          <span>Total Time: {formatTime(totalGameTimeMs)}</span>
+        </div>
       </div>
 
       <div className="w-full space-y-4 mb-8">
@@ -47,12 +53,17 @@ export default function EndScreen({ results, onRestart }: EndScreenProps) {
                   {icon}
                   <div className="truncate pr-4">
                     <h3 className="font-bold text-lg truncate">{result.song.title}</h3>
-                    <p className="text-sm text-muted-foreground truncate">{statusText}</p>
+                    <div className="flex items-center gap-3 text-sm text-muted-foreground truncate mt-1">
+                      <span>{statusText}</span>
+                      <span className="flex items-center gap-1">
+                        <Timer className="w-3 h-3 opacity-50" />
+                        {formatTime(result.totalTimeMs || 0)}
+                      </span>
+                    </div>
                   </div>
                 </div>
                 
-                {/* Individual Score Pill */}
-                <div className="flex flex-col items-end shrink-0">
+                <div className="flex flex-col items-end shrink-0 pl-4 border-l border-foreground/10">
                   <div className="text-2xl font-bold">{points}</div>
                   <div className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Points</div>
                 </div>

@@ -9,7 +9,20 @@ export interface GameResult {
   userGuess: string | null;
   guessHistory: Array<'correct' | 'artist' | 'wrong' | 'skipped'>;
   firstAttemptThinkingTimeMs?: number;
+  totalTimeMs?: number;
 }
+
+export const formatTime = (ms: number): string => {
+  const totalSeconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  const tenths = Math.floor((ms % 1000) / 100);
+
+  if (minutes > 0) {
+    return `${minutes}m ${seconds.toString().padStart(2, '0')}s`;
+  }
+  return `${seconds}.${tenths}s`;
+};
 
 export const extractArtists = (title: string): string[] => {
   const parts = title.split('-');
