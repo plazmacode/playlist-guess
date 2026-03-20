@@ -2,6 +2,7 @@ import { useState } from "react";
 import SetupGame, { type ProcessedSong } from "./components/SetupGame";
 import Game, { type GameResult } from "./components/Game";
 import EndScreen from "./components/EndScreen";
+import { shuffleArray } from "./lib/game-utils";
 
 export function App() {
   const [gameState, setGameState] = useState<"setup" | "playing" | "finished">("setup");
@@ -15,7 +16,7 @@ export function App() {
     setAllSongs(uploadedSongs);
 
     // 2. Shuffle and pick up to 10 songs
-    const shuffled = [...uploadedSongs].sort(() => 0.5 - Math.random());
+    const shuffled = shuffleArray(uploadedSongs);
     const selected = shuffled.slice(0, 10);
     
     setGamePlaylist(selected);
