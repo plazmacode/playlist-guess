@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useMemo } from "react";
 import { type ProcessedSong } from "./SetupGame";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -12,18 +12,9 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { calculatePoints } from "./Scoring";
 
-const INTERVALS = [0.5, 1, 2, 5, 10]; 
-
-export interface GameResult {
-  song: ProcessedSong;
-  guessedCorrectly: boolean;
-  attemptsUsed: number;
-  userGuess: string | null;
-  guessHistory: Array<'correct' | 'artist' | 'wrong' | 'skipped'>;
-  firstAttemptThinkingTimeMs?: number;
-}
+import { INTERVALS, calculatePoints, extractArtists, type GameResult } from "@/lib/game-utils";
+import { useWebAudio } from "@/hooks/useWebAudio";
 
 interface GameProps {
   playlist: ProcessedSong[];
@@ -31,171 +22,72 @@ interface GameProps {
   onFinish: (results: GameResult[]) => void;
 }
 
-const extractArtists = (title: string): string[] => {
-  const parts = title.split('-');
-  const artists: string[] = [];
-
-  if (parts.length > 0) {
-    artists.push(parts[0].trim().toLowerCase());
-  }
-
-  if (parts.length > 1) {
-    const restOfTitle = parts.slice(1).join('-');
-    const remixMatch = restOfTitle.match(/\(([^)]+)\)|\[([^\]]+)\]/g);
-
-    if (remixMatch) {
-      remixMatch.forEach(match => {
-        let inside = match.replace(/[()[\]]/g, '').toLowerCase();
-        const keywords = ['remix', 'bootleg', 'refix', 'edit', 'flip', 'mashup', 'mix', 'by', 'vip'];
-        keywords.forEach(kw => {
-          inside = inside.replace(new RegExp(`\\b${kw}\\b`, 'gi'), '');
-        });
-        inside = inside.trim();
-        if (inside) artists.push(inside);
-      });
-    }
-  }
-  return artists;
-};
-
 export default function Game({ playlist, allSongs, onFinish }: GameProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [snippetStart, setSnippetStart] = useState(0);
   const [volume, setVolume] = useState(0.5);
 
+  // Tracks which time interval the user is currently on (0 = 0.5s, 1 = 1s, etc.)
   const [attemptStep, setAttemptStep] = useState(0); 
   const currentAllowedTime = INTERVALS[attemptStep];
   const maxAttempts = INTERVALS.length;
 
+  // UI State: Controls whether the Shadcn Popover (the song suggestions dropdown) is visible
   const [open, setOpen] = useState(false);
   const [guess, setGuess] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+
+  // Game Logic State
   const [hasResolved, setHasResolved] = useState(false); 
   const [isCorrect, setIsCorrect] = useState(false);
-  const [isReady, setIsReady] = useState(false); 
   const [results, setResults] = useState<GameResult[]>([]);
 
+  // guessHistory tracks the status of each attempt in the current round to color-code the top progress bar.
   const [guessHistory, setGuessHistory] = useState<Array<'correct' | 'artist' | 'wrong' | 'skipped'>>([]);
+
+  // pastGuesses caches incorrect/partial guesses for the current song.
+  // We use this to highlight bad guesses in red/yellow inside the dropdown so users don't repeat mistakes.
   const [pastGuesses, setPastGuesses] = useState<Record<string, 'artist' | 'wrong'>>({});
 
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const audioBufferRef = useRef<AudioBuffer | null>(null);
-  const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
-  const gainNodeRef = useRef<GainNode | null>(null);
-
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const playbackEndedAtRef = useRef<number | null>(null); 
+  // Records the exact time the user spent thinking after the first audio snippet ended.
+  // This is strictly used to calculate the < 5 seconds "speed bonus" in the scoring engine.
   const firstAttemptThinkingTimeRef = useRef<number | null>(null);
-
   const currentSong = playlist[currentIndex];
 
-  useEffect(() => {
-    const AudioContextClass = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!audioCtxRef.current && AudioContextClass) {
-      audioCtxRef.current = new AudioContextClass();
-    }
-  }, []);
+  // We use a custom Web Audio API hook here instead of standard HTML5 <audio> tags for the guessing phase.
+  // Standard <audio> tags struggle to seek accurately within compressed VBR MP3s, often resulting in several seconds of silent playback.
+  // The Web Audio API decodes the whole file into RAM upfront, allowing millisecond-perfect slices for our short intervals.
+  const { 
+    isReady, 
+    isPlaying, 
+    snippetStart, 
+    playSnippet, 
+    pauseAudio, 
+    audioRef, 
+    playbackEndedAtRef,
+    resetPlayer
+  } = useWebAudio(currentSong, currentAllowedTime, volume, attemptStep, INTERVALS[INTERVALS.length - 1]);
 
-  useEffect(() => {
-    let isCancelled = false;
-
-    if (sourceNodeRef.current) {
-      try { sourceNodeRef.current.stop(); } catch { /* safely ignore */ }
-      sourceNodeRef.current.disconnect();
-    }
-
-    const loadAndDecodeAudio = async () => {
-      if (!audioCtxRef.current) return;
-
-      try {
-        const arrayBuffer = await currentSong.originalFile.arrayBuffer();
-        const decodedData = await audioCtxRef.current.decodeAudioData(arrayBuffer);
-
-        if (isCancelled) return;
-        audioBufferRef.current = decodedData;
-
-        const totalDuration = decodedData.duration;
-        const minStart = totalDuration * 0.2; 
-        const maxStart = totalDuration * 0.8 - INTERVALS[INTERVALS.length - 1]; 
-
-        let start = 0;
-        if (maxStart > minStart) {
-          start = Math.random() * (maxStart - minStart) + minStart;
-        }
-
-        setSnippetStart(start);
-        setIsReady(true);
-      } catch (error) {
-        console.error("Failed to decode audio:", error);
-      }
-    };
-
-    loadAndDecodeAudio();
-    return () => { isCancelled = true; };
-  }, [currentIndex, currentSong]);
-
-  useEffect(() => {
-    if (gainNodeRef.current) gainNodeRef.current.gain.value = volume;
-    if (audioRef.current) audioRef.current.volume = volume;
-  }, [volume]);
-
+  // We manually filter and slice the songs here instead of letting Shadcn's <Command> component do it.
+  // Shadcn's underlying `cmdk` library renders ALL items to the DOM and just hides non-matches with CSS.
+  // Rendering 1,000+ DOM nodes instantly freezes the browser, so we enforce a strict 50-item limit in memory.
   const visibleSongs = useMemo(() => {
     if (!searchQuery) return allSongs.slice(0, 50); 
-    const lowerQuery = searchQuery.toLowerCase();
+    const searchTerms = searchQuery.toLowerCase().trim().split(/\s+/);
     return allSongs
-      .filter((song) => song.title.toLowerCase().includes(lowerQuery))
+      .filter((song) => {
+        const lowerTitle = song.title.toLowerCase();
+        // Require EVERY word the user typed to exist somewhere in the title (ignores exact ordering/hyphens)
+        return searchTerms.every(term => lowerTitle.includes(term));
+      })
       .slice(0, 50); 
   }, [allSongs, searchQuery]);
-
-  const playSnippet = () => {
-    if (!audioCtxRef.current || !audioBufferRef.current) return;
-
-    if (sourceNodeRef.current) {
-      try { sourceNodeRef.current.stop(); } catch { /* safely ignore */ }
-      sourceNodeRef.current.disconnect();
-    }
-
-    if (audioCtxRef.current.state === 'suspended') {
-      audioCtxRef.current.resume();
-    }
-
-    const source = audioCtxRef.current.createBufferSource();
-    source.buffer = audioBufferRef.current;
-
-    const gainNode = audioCtxRef.current.createGain();
-    gainNode.gain.value = volume;
-    gainNodeRef.current = gainNode;
-
-    source.connect(gainNode);
-    gainNode.connect(audioCtxRef.current.destination);
-
-    source.start(0, snippetStart, currentAllowedTime);
-    
-    sourceNodeRef.current = source;
-    setIsPlaying(true);
-
-    source.onended = () => {
-      setIsPlaying(false);
-      if (attemptStep === 0) playbackEndedAtRef.current = Date.now();
-    };
-  };
-
-  const pauseAudio = () => {
-    if (sourceNodeRef.current) {
-      try { sourceNodeRef.current.stop(); } catch { /* safely ignore */ }
-      setIsPlaying(false);
-    }
-    if (audioRef.current) {
-      audioRef.current.pause();
-    }
-  };
 
   const resolveSong = (correct: boolean, finalGuess: string | null, finalHistory: Array<'correct' | 'artist' | 'wrong' | 'skipped'>) => {
     pauseAudio();
     setHasResolved(true);
     setIsCorrect(correct);
 
+    // Sync the native <audio> player (revealed after guessing) to start exactly where the random snippet started, making it easy for the user to compare.
     if (audioRef.current) {
       audioRef.current.currentTime = snippetStart;
     }
@@ -216,14 +108,17 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
   const handleSubmit = () => {
     if (!guess) return;
     
+    // If this is their first attempt, calculate their exact thinking time for the speed bonus.
+    // We only trigger this if playbackEndedAtRef is populated (meaning they actually listened to the clip).
     if (attemptStep === 0 && playbackEndedAtRef.current && !firstAttemptThinkingTimeRef.current) {
       firstAttemptThinkingTimeRef.current = Date.now() - playbackEndedAtRef.current;
     }
 
     const isExactMatch = guess === currentSong.title;
-    
     const guessArtists = extractArtists(guess);
     const targetArtists = extractArtists(currentSong.title);
+
+    // Award partial credit if the exact song is wrong, but they correctly identified at least one artist
     const isPartialArtistMatch = !isExactMatch && guessArtists.some(artist => targetArtists.includes(artist));
 
     const guessResultType: 'correct' | 'artist' | 'wrong' = isExactMatch ? 'correct' : (isPartialArtistMatch ? 'artist' : 'wrong');
@@ -233,6 +128,7 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
       setGuessHistory(newHistory);
       resolveSong(true, guess, newHistory);
     } else {
+      // Cache the bad guess so we can visually warn them if they look at it in the dropdown again
       setPastGuesses(prev => ({ ...prev, [guess]: guessResultType as 'artist' | 'wrong' }));
       setGuessHistory(newHistory);
 
@@ -261,27 +157,22 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
 
   const nextSong = () => {
     if (currentIndex < playlist.length - 1) {
-     setIsReady(false);
-      setSnippetStart(0);
       setGuess("");
       setSearchQuery(""); 
       setHasResolved(false);
       setIsCorrect(false);
-      setIsPlaying(false);
       setAttemptStep(0);
       setGuessHistory([]); 
       setPastGuesses({});  
-      playbackEndedAtRef.current = null;
       firstAttemptThinkingTimeRef.current = null;
-
-      // Finally, move to the next song
+      
+      resetPlayer();
+      
       setCurrentIndex(c => c + 1);
     } else {
       onFinish(results);
     }
   };
-
-  // --- Calculate Live Scores for UI ---
   const currentResult = results[currentIndex];
   const earnedPoints = currentResult ? calculatePoints(currentResult) : 0;
   const currentTotalScore = results.reduce((sum, res) => sum + calculatePoints(res), 0);
@@ -303,7 +194,7 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
             else if (status === 'artist') bgColor = "bg-yellow-500";
             else bgColor = "bg-red-500"; 
           } else if (idx === attemptStep && !hasResolved) {
-            bgColor = "bg-primary";
+            bgColor = "bg-primary"; // Highlight the current active segment
           }
 
           return (
@@ -392,7 +283,7 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
                         value={song.title}
                         onSelect={() => {
                           setGuess(song.title);
-                          setOpen(false);
+                          setOpen(false); // Close the dropdown when a song is selected
                         }}
                         className={`
                           ${guessStatus === 'wrong' ? 'text-red-500' : ''}
@@ -431,7 +322,6 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
               </p>
             )}
 
-            {/* --- NEW LIVE SCORE DISPLAY --- */}
             <div className="flex items-center gap-8 mt-4 mb-2 bg-secondary/30 px-8 py-4 rounded-xl">
               <div className="flex flex-col items-center">
                 <span className="text-sm text-muted-foreground uppercase font-semibold">Gained</span>

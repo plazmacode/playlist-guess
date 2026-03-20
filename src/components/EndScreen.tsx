@@ -1,7 +1,6 @@
-import { type GameResult } from "./Game";
 import { Button } from "@/components/ui/button";
+import { calculatePoints, type GameResult } from "@/lib/game-utils";
 import { CheckCircle2, XCircle, UserCheck } from "lucide-react"; // Added UserCheck for artist matches
-import { calculatePoints } from "./Scoring";
 
 interface EndScreenProps {
   results: GameResult[];
