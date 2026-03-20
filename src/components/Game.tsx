@@ -12,6 +12,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { calculatePoints } from "./Scoring";
 
 const INTERVALS = [0.5, 1, 2, 5, 10]; 
 
@@ -30,25 +31,21 @@ interface GameProps {
   onFinish: (results: GameResult[]) => void;
 }
 
-// Helper function to extract main artists and remixers from our file names
 const extractArtists = (title: string): string[] => {
   const parts = title.split('-');
   const artists: string[] = [];
 
-  // Main artist is usually everything before the first hyphen
   if (parts.length > 0) {
     artists.push(parts[0].trim().toLowerCase());
   }
 
-  // Check for remixers in parentheses or brackets in the rest of the title
   if (parts.length > 1) {
     const restOfTitle = parts.slice(1).join('-');
     const remixMatch = restOfTitle.match(/\(([^)]+)\)|\[([^\]]+)\]/g);
 
     if (remixMatch) {
       remixMatch.forEach(match => {
-        let inside = match.replace(/[()\[\]]/g, '').toLowerCase();
-        // Strip common remix terminology to isolate the actual artist name
+        let inside = match.replace(/[()[\]]/g, '').toLowerCase();
         const keywords = ['remix', 'bootleg', 'refix', 'edit', 'flip', 'mashup', 'mix', 'by', 'vip'];
         keywords.forEach(kw => {
           inside = inside.replace(new RegExp(`\\b${kw}\\b`, 'gi'), '');
@@ -71,7 +68,6 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
   const currentAllowedTime = INTERVALS[attemptStep];
   const maxAttempts = INTERVALS.length;
 
-  // Guessing & Loading State
   const [open, setOpen] = useState(false);
   const [guess, setGuess] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -80,26 +76,22 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
   const [isReady, setIsReady] = useState(false); 
   const [results, setResults] = useState<GameResult[]>([]);
 
-  // Advanced Tracking
   const [guessHistory, setGuessHistory] = useState<Array<'correct' | 'artist' | 'wrong' | 'skipped'>>([]);
   const [pastGuesses, setPastGuesses] = useState<Record<string, 'artist' | 'wrong'>>({});
 
-  // Web Audio API Refs
   const audioCtxRef = useRef<AudioContext | null>(null);
   const audioBufferRef = useRef<AudioBuffer | null>(null);
   const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
   const gainNodeRef = useRef<GainNode | null>(null);
 
-  // Native Audio Ref
   const audioRef = useRef<HTMLAudioElement>(null);
-  
   const playbackEndedAtRef = useRef<number | null>(null); 
   const firstAttemptThinkingTimeRef = useRef<number | null>(null);
 
   const currentSong = playlist[currentIndex];
 
   useEffect(() => {
-    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    const AudioContextClass = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!audioCtxRef.current && AudioContextClass) {
       audioCtxRef.current = new AudioContextClass();
     }
@@ -115,8 +107,10 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
     setIsCorrect(false);
     setIsPlaying(false);
     setAttemptStep(0);
-    setGuessHistory([]); // Reset history
-    setPastGuesses({});  // Reset dropdown colors
+    setGuessHistory([]); 
+    setPastGuesses({});  
+    playbackEndedAtRef.current = null;
+    firstAttemptThinkingTimeRef.current = null;
 
     if (sourceNodeRef.current) {
       try { sourceNodeRef.current.stop(); } catch(e) {}
@@ -195,8 +189,6 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
 
     source.onended = () => {
       setIsPlaying(false);
-
-      // Start timer for scoring system
       if (attemptStep === 0) playbackEndedAtRef.current = Date.now();
     };
   };
@@ -236,14 +228,12 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
   const handleSubmit = () => {
     if (!guess) return;
     
-    if (attemptStep === 0 && playbackEndedAtRef.current) {
-      // Calculate how long they thought about it after the music stopped
+    if (attemptStep === 0 && playbackEndedAtRef.current && !firstAttemptThinkingTimeRef.current) {
       firstAttemptThinkingTimeRef.current = Date.now() - playbackEndedAtRef.current;
     }
 
     const isExactMatch = guess === currentSong.title;
     
-    // Evaluate for partial points (Artist match)
     const guessArtists = extractArtists(guess);
     const targetArtists = extractArtists(currentSong.title);
     const isPartialArtistMatch = !isExactMatch && guessArtists.some(artist => targetArtists.includes(artist));
@@ -255,7 +245,6 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
       setGuessHistory(newHistory);
       resolveSong(true, guess, newHistory);
     } else {
-      // Record wrong/artist guess to highlight in dropdown
       setPastGuesses(prev => ({ ...prev, [guess]: guessResultType as 'artist' | 'wrong' }));
       setGuessHistory(newHistory);
 
@@ -290,6 +279,11 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
     }
   };
 
+  // --- Calculate Live Scores for UI ---
+  const currentResult = results[currentIndex];
+  const earnedPoints = currentResult ? calculatePoints(currentResult) : 0;
+  const currentTotalScore = results.reduce((sum, res) => sum + calculatePoints(res), 0);
+
   return (
     <div className="flex flex-col items-center mt-12 px-80 w-full">
       <div className="flex justify-between w-full font-semibold mb-4">
@@ -299,16 +293,14 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
 
       <div className="w-full flex h-3 bg-secondary rounded-full mb-8 gap-1">
         {INTERVALS.map((time, idx) => {
-          let bgColor = "bg-secondary-foreground/20"; // Default unused state
+          let bgColor = "bg-secondary-foreground/20"; 
           
           if (idx < guessHistory.length) {
-            // Apply color based on the history of this exact attempt segment
             const status = guessHistory[idx];
             if (status === 'correct') bgColor = "bg-green-500";
             else if (status === 'artist') bgColor = "bg-yellow-500";
-            else bgColor = "bg-red-500"; // Covers 'wrong' and 'skipped'
+            else bgColor = "bg-red-500"; 
           } else if (idx === attemptStep && !hasResolved) {
-            // Highlight the current attempt segment
             bgColor = "bg-primary";
           }
 
@@ -436,6 +428,19 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
                 The answer was: <br/><span className="text-foreground font-semibold text-lg">{currentSong.title}</span>
               </p>
             )}
+
+            {/* --- NEW LIVE SCORE DISPLAY --- */}
+            <div className="flex items-center gap-8 mt-4 mb-2 bg-secondary/30 px-8 py-4 rounded-xl">
+              <div className="flex flex-col items-center">
+                <span className="text-sm text-muted-foreground uppercase font-semibold">Gained</span>
+                <span className="text-3xl font-bold text-primary">+{earnedPoints}</span>
+              </div>
+              <div className="w-px h-12 bg-border"></div>
+              <div className="flex flex-col items-center">
+                <span className="text-sm text-muted-foreground uppercase font-semibold">Total Score</span>
+                <span className="text-3xl font-bold">{currentTotalScore}</span>
+              </div>
+            </div>
 
             <Button onClick={nextSong} className="w-full h-12 text-lg mt-4">
               {currentIndex < playlist.length - 1 ? "Next Song" : "See Results"}

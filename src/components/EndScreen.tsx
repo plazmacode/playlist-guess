@@ -1,6 +1,7 @@
 import { type GameResult } from "./Game";
 import { Button } from "@/components/ui/button";
 import { CheckCircle2, XCircle, UserCheck } from "lucide-react"; // Added UserCheck for artist matches
+import { calculatePoints } from "./Scoring";
 
 interface EndScreenProps {
   results: GameResult[];
@@ -8,37 +9,6 @@ interface EndScreenProps {
 }
 
 export default function EndScreen({ results, onRestart }: EndScreenProps) {
-  // --- Scoring Engine ---
-  const calculatePoints = (result: GameResult) => {
-    // Base scores for attempts 1 through 5
-    const baseScores = [90, 80, 70, 60, 50]; 
-    const artistScores = [45, 40, 35, 30, 25]; // Artist guesses give half points
-    let points = 0;
-
-    if (result.guessedCorrectly) {
-      points = baseScores[result.attemptsUsed - 1] || 50;
-
-      // 10-Point Speed Bonus ONLY on the first attempt
-      if (result.attemptsUsed === 1 && result.firstAttemptThinkingTimeMs !== undefined) {
-        const timeMs = result.firstAttemptThinkingTimeMs;
-        if (timeMs <= 3000) {
-          points += 10; // Perfect 100
-        } else {
-          // Lose 1 bonus point per second after 3 seconds, min bonus is 5
-          const secondsLate = Math.floor((timeMs - 3000) / 1000);
-          const bonus = Math.max(5, 10 - secondsLate);
-          points += bonus;
-        }
-      }
-    } else if (result.guessHistory.includes('artist')) {
-      // If they failed the song but got the artist, award half points 
-      // based on the EARLIEST attempt they guessed the artist correctly.
-      const earliestArtistMatch = result.guessHistory.indexOf('artist');
-      points = artistScores[earliestArtistMatch] || 25;
-    }
-
-    return points;
-  };
 
   const totalScore = results.reduce((sum, res) => sum + calculatePoints(res), 0);
 
