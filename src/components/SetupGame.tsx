@@ -78,7 +78,7 @@ export function SetupGame({ onStart }: SetupGameProps) {
   return (
     <div>
       <div className="flex justify-center items-center">
-        <h1 className="text-4xl mt-12 mb-4">Upload some songs</h1>
+        <h1 className="text-4xl mt-12 mb-4">Upload some songs :3</h1>
       </div>
       <div
       onClick={handleBoxClick}
@@ -86,7 +86,7 @@ export function SetupGame({ onStart }: SetupGameProps) {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       className={`
-          h-[40vh] m-4 p-4 border-dashed border-2 rounded-xl flex flex-col justify-center items-center cursor-pointer transition-colors duration-200
+          h-[50vh] m-4 border-dashed border-5 rounded-xl flex flex-col justify-center items-center cursor-pointer transition-colors duration-200
           ${isDragging 
             ? "border-blue-500 bg-blue-50/10" // Visual feedback when dragging
             : "border-gray-300 hover:bg-gray-50/5 hover:border-gray-400"
@@ -118,7 +118,7 @@ export function SetupGame({ onStart }: SetupGameProps) {
 
 
       {uploadedSongs.length > 0 && (
-        <div className="ml-4 mt-8 max-w-2xl">
+        <div className="ml-4 mt-8">
           <h2 className="text-xl font-bold mb-4">Ready to play: {uploadedSongs.length} songs</h2>
           <ul className="space-y-2">
             {uploadedSongs.map((song) => (

@@ -194,13 +194,13 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
   const currentTotalScore = results.reduce((sum, res) => sum + calculatePoints(res), 0);
 
   return (
-    <div className="flex flex-col items-center mt-12 px-80 w-full">
-      <div className="flex justify-between w-full font-semibold mb-4">
+    <div className="flex flex-col items-center mt-10 px-80">
+      <div className="flex justify-between w-full font-bold mb-4">
         <span>Song {currentIndex + 1} of {playlist.length}</span>
         <span>Attempt {hasResolved ? attemptStep + 1 : attemptStep + 1} of {maxAttempts}</span>
       </div>
 
-      <div className="w-full flex h-3 bg-secondary rounded-full mb-8 gap-1">
+      <div className="w-full flex h-5 bg-secondary rounded-full mb-8 gap-1 overflow-hidden">
         {INTERVALS.map((time, idx) => {
           let bgColor = "bg-secondary-foreground/20"; 
           
@@ -252,7 +252,7 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
               )}
             </Button>
           </div>
-          <div className="flex items-center gap-4 w-full max-w-[250px] mt-2">
+          <div className="flex items-center gap-4 w-full max-w-[300px] mt-2">
             <Volume2 className="h-5 w-5 text-muted-foreground" />
             <Slider
               defaultValue={[0.5]}
