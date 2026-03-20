@@ -1,6 +1,6 @@
 import { type GameResult } from "./Game";
 import { Button } from "@/components/ui/button";
-import { CheckCircle2, XCircle } from "lucide-react";
+import { CheckCircle2, XCircle, UserCheck } from "lucide-react"; // Added UserCheck for artist matches
 
 interface EndScreenProps {
   results: GameResult[];
@@ -8,50 +8,91 @@ interface EndScreenProps {
 }
 
 export default function EndScreen({ results, onRestart }: EndScreenProps) {
-  const correctCount = results.filter(r => r.guessedCorrectly).length;
+  // --- Scoring Engine ---
+  const calculatePoints = (result: GameResult) => {
+    // Base scores for attempts 1 through 5
+    const baseScores = [90, 80, 70, 60, 50]; 
+    const artistScores = [45, 40, 35, 30, 25]; // Artist guesses give half points
+    let points = 0;
+
+    if (result.guessedCorrectly) {
+      points = baseScores[result.attemptsUsed - 1] || 50;
+
+      // 10-Point Speed Bonus ONLY on the first attempt
+      if (result.attemptsUsed === 1 && result.firstAttemptThinkingTimeMs !== undefined) {
+        const timeMs = result.firstAttemptThinkingTimeMs;
+        if (timeMs <= 3000) {
+          points += 10; // Perfect 100
+        } else {
+          // Lose 1 bonus point per second after 3 seconds, min bonus is 5
+          const secondsLate = Math.floor((timeMs - 3000) / 1000);
+          const bonus = Math.max(5, 10 - secondsLate);
+          points += bonus;
+        }
+      }
+    } else if (result.guessHistory.includes('artist')) {
+      // If they failed the song but got the artist, award half points 
+      // based on the EARLIEST attempt they guessed the artist correctly.
+      const earliestArtistMatch = result.guessHistory.indexOf('artist');
+      points = artistScores[earliestArtistMatch] || 25;
+    }
+
+    return points;
+  };
+
+  const totalScore = results.reduce((sum, res) => sum + calculatePoints(res), 0);
 
   return (
-    <div className="flex flex-col items-center mt-8 w-full max-w-3xl mx-auto px-4">
+    <div className="flex flex-col items-center mt-8 w-full max-w-3xl mx-auto px-4 pb-12">
       <h1 className="text-4xl font-bold mb-2">Game Over!</h1>
-      <p className="text-xl text-muted-foreground mb-8">
-        You got {correctCount} out of {results.length} correct.
-      </p>
+      
+      {/* Big Score Display */}
+      <div className="text-6xl font-black text-primary my-6 tracking-tighter">
+        {totalScore} <span className="text-3xl text-muted-foreground font-semibold">/ 1000</span>
+      </div>
 
       <div className="w-full space-y-4 mb-8">
-        {results.map((result, index) => (
-          <div 
-            key={index} 
-            className={`p-4 rounded-lg border flex flex-col gap-4 ${
-              result.guessedCorrectly ? "bg-green-500/10 border-green-500/50" : "bg-red-500/10 border-red-500/50"
-            }`}
-          >
-            <div className="flex justify-between items-start">
-              <div className="flex items-center gap-3">
-                {result.guessedCorrectly ? (
-                  <CheckCircle2 className="text-green-500 h-6 w-6" />
-                ) : (
-                  <XCircle className="text-red-500 h-6 w-6" />
-                )}
-                <div>
-                  <h3 className="font-bold text-lg">{result.song.title}</h3>
-                  <p className="text-sm text-muted-foreground">
-                    {result.guessedCorrectly 
-                      ? `Guessed in ${result.attemptsUsed} attempt(s)`
-                      : `Your final guess: ${result.userGuess || "None"}`
-                    }
-                  </p>
+        {results.map((result, index) => {
+          const points = calculatePoints(result);
+          const isArtistMatch = !result.guessedCorrectly && result.guessHistory.includes('artist');
+          
+          // Determine styling based on result type
+          let boxColor = "bg-red-500/10 border-red-500/50";
+          let icon = <XCircle className="text-red-500 h-6 w-6 shrink-0" />;
+          let statusText = `Final guess: ${result.userGuess || "None"}`;
+
+          if (result.guessedCorrectly) {
+            boxColor = "bg-green-500/10 border-green-500/50";
+            icon = <CheckCircle2 className="text-green-500 h-6 w-6 shrink-0" />;
+            statusText = `Guessed in ${result.attemptsUsed} attempt(s)`;
+          } else if (isArtistMatch) {
+            boxColor = "bg-yellow-500/10 border-yellow-500/50";
+            icon = <UserCheck className="text-yellow-600 dark:text-yellow-500 h-6 w-6 shrink-0" />;
+            statusText = `Artist matched: ${result.userGuess}`;
+          }
+
+          return (
+            <div key={index} className={`p-4 rounded-lg border flex flex-col gap-4 ${boxColor}`}>
+              <div className="flex justify-between items-center">
+                <div className="flex items-center gap-3 overflow-hidden">
+                  {icon}
+                  <div className="truncate pr-4">
+                    <h3 className="font-bold text-lg truncate">{result.song.title}</h3>
+                    <p className="text-sm text-muted-foreground truncate">{statusText}</p>
+                  </div>
+                </div>
+                
+                {/* Individual Score Pill */}
+                <div className="flex flex-col items-end shrink-0">
+                  <div className="text-2xl font-bold">{points}</div>
+                  <div className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Points</div>
                 </div>
               </div>
+              
+              <audio src={result.song.previewUrl} controls className="w-full h-10" />
             </div>
-            
-            {/* Native audio player so the user can listen to the full song */}
-            <audio 
-              src={result.song.previewUrl} 
-              controls 
-              className="w-full h-10" 
-            />
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       <Button size="lg" onClick={onRestart} className="w-full max-w-sm text-lg h-14">

@@ -20,6 +20,8 @@ export interface GameResult {
   guessedCorrectly: boolean;
   attemptsUsed: number;
   userGuess: string | null;
+  guessHistory: Array<'correct' | 'artist' | 'wrong' | 'skipped'>;
+  firstAttemptThinkingTimeMs?: number;
 }
 
 interface GameProps {
@@ -27,6 +29,37 @@ interface GameProps {
   allSongs: ProcessedSong[];
   onFinish: (results: GameResult[]) => void;
 }
+
+// Helper function to extract main artists and remixers from our file names
+const extractArtists = (title: string): string[] => {
+  const parts = title.split('-');
+  const artists: string[] = [];
+
+  // Main artist is usually everything before the first hyphen
+  if (parts.length > 0) {
+    artists.push(parts[0].trim().toLowerCase());
+  }
+
+  // Check for remixers in parentheses or brackets in the rest of the title
+  if (parts.length > 1) {
+    const restOfTitle = parts.slice(1).join('-');
+    const remixMatch = restOfTitle.match(/\(([^)]+)\)|\[([^\]]+)\]/g);
+
+    if (remixMatch) {
+      remixMatch.forEach(match => {
+        let inside = match.replace(/[()\[\]]/g, '').toLowerCase();
+        // Strip common remix terminology to isolate the actual artist name
+        const keywords = ['remix', 'bootleg', 'refix', 'edit', 'flip', 'mashup', 'mix', 'by', 'vip'];
+        keywords.forEach(kw => {
+          inside = inside.replace(new RegExp(`\\b${kw}\\b`, 'gi'), '');
+        });
+        inside = inside.trim();
+        if (inside) artists.push(inside);
+      });
+    }
+  }
+  return artists;
+};
 
 export default function Game({ playlist, allSongs, onFinish }: GameProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -44,21 +77,27 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [hasResolved, setHasResolved] = useState(false); 
   const [isCorrect, setIsCorrect] = useState(false);
-  const [isReady, setIsReady] = useState(false); // Tracks if Web Audio API has decoded the track
+  const [isReady, setIsReady] = useState(false); 
   const [results, setResults] = useState<GameResult[]>([]);
 
-  // Web Audio API Refs (The Engine)
+  // Advanced Tracking
+  const [guessHistory, setGuessHistory] = useState<Array<'correct' | 'artist' | 'wrong' | 'skipped'>>([]);
+  const [pastGuesses, setPastGuesses] = useState<Record<string, 'artist' | 'wrong'>>({});
+
+  // Web Audio API Refs
   const audioCtxRef = useRef<AudioContext | null>(null);
   const audioBufferRef = useRef<AudioBuffer | null>(null);
   const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
   const gainNodeRef = useRef<GainNode | null>(null);
 
-  // Native Audio Ref (Used ONLY for the full song player at the end)
+  // Native Audio Ref
   const audioRef = useRef<HTMLAudioElement>(null);
   
+  const playbackEndedAtRef = useRef<number | null>(null); 
+  const firstAttemptThinkingTimeRef = useRef<number | null>(null);
+
   const currentSong = playlist[currentIndex];
 
-  // 1. Initialize Audio Context on mount
   useEffect(() => {
     const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
     if (!audioCtxRef.current && AudioContextClass) {
@@ -66,7 +105,6 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
     }
   }, []);
 
-  // 2. Decode the local MP3 file into memory when the song changes
   useEffect(() => {
     let isCancelled = false;
     setIsReady(false);
@@ -77,8 +115,9 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
     setIsCorrect(false);
     setIsPlaying(false);
     setAttemptStep(0);
+    setGuessHistory([]); // Reset history
+    setPastGuesses({});  // Reset dropdown colors
 
-    // Stop current Web Audio playback if switching songs
     if (sourceNodeRef.current) {
       try { sourceNodeRef.current.stop(); } catch(e) {}
       sourceNodeRef.current.disconnect();
@@ -88,16 +127,12 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
       if (!audioCtxRef.current) return;
 
       try {
-        // Read the raw file data
         const arrayBuffer = await currentSong.originalFile.arrayBuffer();
-        // Decode it instantly into PCM memory (fixes all VBR/silence bugs)
         const decodedData = await audioCtxRef.current.decodeAudioData(arrayBuffer);
 
         if (isCancelled) return;
-
         audioBufferRef.current = decodedData;
 
-        // Calculate a safe 20%-80% start window
         const totalDuration = decodedData.duration;
         const minStart = totalDuration * 0.2; 
         const maxStart = totalDuration * 0.8 - INTERVALS[INTERVALS.length - 1]; 
@@ -115,13 +150,9 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
     };
 
     loadAndDecodeAudio();
-
-    return () => {
-      isCancelled = true;
-    };
+    return () => { isCancelled = true; };
   }, [currentIndex, currentSong]);
 
-  // Sync Volume
   useEffect(() => {
     if (gainNodeRef.current) gainNodeRef.current.gain.value = volume;
     if (audioRef.current) audioRef.current.volume = volume;
@@ -135,26 +166,21 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
       .slice(0, 50); 
   }, [allSongs, searchQuery]);
 
-  // --- THE NEW MILLISECOND-ACCURATE PLAYER ---
   const playSnippet = () => {
     if (!audioCtxRef.current || !audioBufferRef.current) return;
 
-    // Stop any existing overlapping sounds
     if (sourceNodeRef.current) {
       try { sourceNodeRef.current.stop(); } catch(e) {}
       sourceNodeRef.current.disconnect();
     }
 
-    // Wake up the audio context if the browser suspended it
     if (audioCtxRef.current.state === 'suspended') {
       audioCtxRef.current.resume();
     }
 
-    // Create a new sound source from our decoded memory
     const source = audioCtxRef.current.createBufferSource();
     source.buffer = audioBufferRef.current;
 
-    // Apply the volume
     const gainNode = audioCtxRef.current.createGain();
     gainNode.gain.value = volume;
     gainNodeRef.current = gainNode;
@@ -162,15 +188,16 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
     source.connect(gainNode);
     gainNode.connect(audioCtxRef.current.destination);
 
-    // .start(whenToStart, offsetInSong, durationToPlay)
     source.start(0, snippetStart, currentAllowedTime);
     
     sourceNodeRef.current = source;
     setIsPlaying(true);
 
-    // Let the API turn the button off exactly when the snippet finishes
     source.onended = () => {
       setIsPlaying(false);
+
+      // Start timer for scoring system
+      if (attemptStep === 0) playbackEndedAtRef.current = Date.now();
     };
   };
 
@@ -184,12 +211,11 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
     }
   };
 
-  const resolveSong = (correct: boolean, finalGuess: string | null) => {
+  const resolveSong = (correct: boolean, finalGuess: string | null, finalHistory: Array<'correct' | 'artist' | 'wrong' | 'skipped'>) => {
     pauseAudio();
     setHasResolved(true);
     setIsCorrect(correct);
 
-    // Seek the native audio player to the start of the snippet for easy comparison
     if (audioRef.current) {
       audioRef.current.currentTime = snippetStart;
     }
@@ -200,7 +226,9 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
         song: currentSong,
         guessedCorrectly: correct,
         attemptsUsed: attemptStep + 1,
-        userGuess: finalGuess
+        userGuess: finalGuess,
+        guessHistory: finalHistory,
+        firstAttemptThinkingTimeMs: firstAttemptThinkingTimeRef.current || 0,
       }
     ]);
   };
@@ -208,26 +236,49 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
   const handleSubmit = () => {
     if (!guess) return;
     
-    if (guess === currentSong.title) {
-      resolveSong(true, guess);
+    if (attemptStep === 0 && playbackEndedAtRef.current) {
+      // Calculate how long they thought about it after the music stopped
+      firstAttemptThinkingTimeRef.current = Date.now() - playbackEndedAtRef.current;
+    }
+
+    const isExactMatch = guess === currentSong.title;
+    
+    // Evaluate for partial points (Artist match)
+    const guessArtists = extractArtists(guess);
+    const targetArtists = extractArtists(currentSong.title);
+    const isPartialArtistMatch = !isExactMatch && guessArtists.some(artist => targetArtists.includes(artist));
+
+    const guessResultType = isExactMatch ? 'correct' : (isPartialArtistMatch ? 'artist' : 'wrong');
+    const newHistory = [...guessHistory, guessResultType];
+    
+    if (isExactMatch) {
+      setGuessHistory(newHistory);
+      resolveSong(true, guess, newHistory);
     } else {
+      // Record wrong/artist guess to highlight in dropdown
+      setPastGuesses(prev => ({ ...prev, [guess]: guessResultType as 'artist' | 'wrong' }));
+      setGuessHistory(newHistory);
+
       if (attemptStep < maxAttempts - 1) {
         setAttemptStep(prev => prev + 1);
         setGuess("");
         setSearchQuery("");
       } else {
-        resolveSong(false, guess);
+        resolveSong(false, guess, newHistory);
       }
     }
   };
 
   const handleSkip = () => {
+    const newHistory: Array<'correct' | 'artist' | 'wrong' | 'skipped'> = [...guessHistory, 'skipped'];
+    setGuessHistory(newHistory);
+
     if (attemptStep < maxAttempts - 1) {
       setAttemptStep(prev => prev + 1);
       setGuess("");
       setSearchQuery("");
     } else {
-      resolveSong(false, "Skipped");
+      resolveSong(false, "Skipped", newHistory);
     }
   };
 
@@ -240,27 +291,37 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
   };
 
   return (
-    <div className="flex flex-col items-center mt-12 px-80">
+    <div className="flex flex-col items-center mt-12 px-80 w-full">
       <div className="flex justify-between w-full font-semibold mb-4">
         <span>Song {currentIndex + 1} of {playlist.length}</span>
         <span>Attempt {hasResolved ? attemptStep + 1 : attemptStep + 1} of {maxAttempts}</span>
       </div>
 
       <div className="w-full flex h-3 bg-secondary rounded-full mb-8 gap-1">
-        {INTERVALS.map((time, idx) => (
-          <div 
-            key={idx} 
-            className={`h-full transition-colors duration-300 ${
-              idx <= attemptStep 
-                ? (hasResolved && isCorrect && idx === attemptStep) ? "bg-green-500" : "bg-primary" 
-                : "bg-secondary-foreground/20"
-            }`}
-            style={{ width: `${(time / INTERVALS[INTERVALS.length - 1]) * 100}%` }}
-          />
-        ))}
+        {INTERVALS.map((time, idx) => {
+          let bgColor = "bg-secondary-foreground/20"; // Default unused state
+          
+          if (idx < guessHistory.length) {
+            // Apply color based on the history of this exact attempt segment
+            const status = guessHistory[idx];
+            if (status === 'correct') bgColor = "bg-green-500";
+            else if (status === 'artist') bgColor = "bg-yellow-500";
+            else bgColor = "bg-red-500"; // Covers 'wrong' and 'skipped'
+          } else if (idx === attemptStep && !hasResolved) {
+            // Highlight the current attempt segment
+            bgColor = "bg-primary";
+          }
+
+          return (
+            <div 
+              key={idx} 
+              className={`h-full transition-colors duration-300 ${bgColor}`}
+              style={{ width: `${(time / INTERVALS[INTERVALS.length - 1]) * 100}%` }}
+            />
+          );
+        })}
       </div>
 
-      {/* The Native Audio Tag: Now ONLY used to play the full song after guessing */}
       <audio
         ref={audioRef}
         src={currentSong.previewUrl}
@@ -268,7 +329,6 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
         className={`w-full my-4 ${hasResolved ? "block" : "hidden"}`}
       />
 
-      {/* Custom Audio Controls (Only show BEFORE guessing is resolved) */}
       {!hasResolved && (
         <div className="flex flex-col w-full gap-4 items-center">
           <div className="text-xl font-bold mb-2">
@@ -316,7 +376,7 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
               className="w-full justify-between h-12 text-lg"
               disabled={hasResolved}
             >
-              {guess ? guess : "Search for your guess..."}
+              <span className="truncate">{guess ? guess : "Search for your guess..."}</span>
               <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
             </Button>
           </PopoverTrigger>
@@ -325,24 +385,31 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
               <CommandInput 
                 placeholder="Search songs..." 
                 value={searchQuery}
-                onValueChange={setSearchQuery} // Bind search query state
+                onValueChange={setSearchQuery} 
               />
               <CommandList>
                 <CommandEmpty>No song found.</CommandEmpty>
                 <CommandGroup>
-                  {visibleSongs.map((song) => (
-                    <CommandItem
-                      key={song.id}
-                      value={song.title}
-                      onSelect={() => {
-                        setGuess(song.title);
-                        setOpen(false);
-                      }}
-                    >
-                      <Check className={`mr-2 h-4 w-4 ${guess === song.title ? "opacity-100" : "opacity-0"}`} />
-                      {song.title}
-                    </CommandItem>
-                  ))}
+                  {visibleSongs.map((song) => {
+                    const guessStatus = pastGuesses[song.title];
+                    return (
+                      <CommandItem
+                        key={song.id}
+                        value={song.title}
+                        onSelect={() => {
+                          setGuess(song.title);
+                          setOpen(false);
+                        }}
+                        className={`
+                          ${guessStatus === 'wrong' ? 'text-red-500' : ''}
+                          ${guessStatus === 'artist' ? 'text-yellow-600 dark:text-yellow-500' : ''}
+                        `}
+                      >
+                        <Check className={`mr-2 h-4 w-4 shrink-0 ${guess === song.title ? "opacity-100" : "opacity-0"}`} />
+                        <span className="truncate">{song.title}</span>
+                      </CommandItem>
+                    );
+                  })}
                 </CommandGroup>
               </CommandList>
             </Command>
@@ -351,7 +418,7 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
 
         {!hasResolved ? (
           <div className="flex gap-4 w-full">
-            <Button onClick={handleSubmit} disabled={!guess} className="flex-1 h-12 text-lg bg-purple-800 text-white">
+            <Button onClick={handleSubmit} disabled={!guess} className="flex-1 h-12 text-lg bg-purple-800 text-white hover:bg-purple-900">
               Submit Guess
             </Button>
             <Button onClick={handleSkip} variant="secondary" className="w-32 h-12 text-lg">
@@ -365,7 +432,9 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
             </div>
             
             {!isCorrect && (
-              <p className="text-muted-foreground">The answer was: <span className="text-foreground font-semibold">{currentSong.title}</span></p>
+              <p className="text-muted-foreground text-center">
+                The answer was: <br/><span className="text-foreground font-semibold text-lg">{currentSong.title}</span>
+              </p>
             )}
 
             <Button onClick={nextSong} className="w-full h-12 text-lg mt-4">
