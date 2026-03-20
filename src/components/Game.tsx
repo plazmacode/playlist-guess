@@ -99,21 +99,9 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
 
   useEffect(() => {
     let isCancelled = false;
-    setIsReady(false);
-    setSnippetStart(0);
-    setGuess("");
-    setSearchQuery(""); 
-    setHasResolved(false);
-    setIsCorrect(false);
-    setIsPlaying(false);
-    setAttemptStep(0);
-    setGuessHistory([]); 
-    setPastGuesses({});  
-    playbackEndedAtRef.current = null;
-    firstAttemptThinkingTimeRef.current = null;
 
     if (sourceNodeRef.current) {
-      try { sourceNodeRef.current.stop(); } catch(e) {}
+      try { sourceNodeRef.current.stop(); } catch { /* safely ignore */ }
       sourceNodeRef.current.disconnect();
     }
 
@@ -164,7 +152,7 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
     if (!audioCtxRef.current || !audioBufferRef.current) return;
 
     if (sourceNodeRef.current) {
-      try { sourceNodeRef.current.stop(); } catch(e) {}
+      try { sourceNodeRef.current.stop(); } catch { /* safely ignore */ }
       sourceNodeRef.current.disconnect();
     }
 
@@ -195,7 +183,7 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
 
   const pauseAudio = () => {
     if (sourceNodeRef.current) {
-      try { sourceNodeRef.current.stop(); } catch(e) {}
+      try { sourceNodeRef.current.stop(); } catch { /* safely ignore */ }
       setIsPlaying(false);
     }
     if (audioRef.current) {
@@ -238,7 +226,7 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
     const targetArtists = extractArtists(currentSong.title);
     const isPartialArtistMatch = !isExactMatch && guessArtists.some(artist => targetArtists.includes(artist));
 
-    const guessResultType = isExactMatch ? 'correct' : (isPartialArtistMatch ? 'artist' : 'wrong');
+    const guessResultType: 'correct' | 'artist' | 'wrong' = isExactMatch ? 'correct' : (isPartialArtistMatch ? 'artist' : 'wrong');
     const newHistory = [...guessHistory, guessResultType];
     
     if (isExactMatch) {
@@ -273,6 +261,20 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
 
   const nextSong = () => {
     if (currentIndex < playlist.length - 1) {
+     setIsReady(false);
+      setSnippetStart(0);
+      setGuess("");
+      setSearchQuery(""); 
+      setHasResolved(false);
+      setIsCorrect(false);
+      setIsPlaying(false);
+      setAttemptStep(0);
+      setGuessHistory([]); 
+      setPastGuesses({});  
+      playbackEndedAtRef.current = null;
+      firstAttemptThinkingTimeRef.current = null;
+
+      // Finally, move to the next song
       setCurrentIndex(c => c + 1);
     } else {
       onFinish(results);

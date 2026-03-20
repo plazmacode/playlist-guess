@@ -1,3 +1,5 @@
+import type { GameResult } from "./Game";
+
 export const calculatePoints = (result: GameResult) => {
   const baseScores = [90, 80, 70, 60, 50]; 
   const artistScores = [45, 40, 35, 30, 25]; 
