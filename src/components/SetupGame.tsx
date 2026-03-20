@@ -38,7 +38,6 @@ export function SetupGame({ onStart }: SetupGameProps) {
 
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       processFiles(Array.from(e.dataTransfer.files));
-      e.dataTransfer.clearData();
     }
   };
 
