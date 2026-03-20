@@ -106,7 +106,9 @@ export function useWebAudio(
 
     source.onended = () => {
       setIsPlaying(false);
-      if (attemptStep === 0) playbackEndedAtRef.current = Date.now();
+      if (attemptStep === 0 && playbackEndedAtRef.current === null) {
+        playbackEndedAtRef.current = Date.now();
+      }
     };
   };
 
