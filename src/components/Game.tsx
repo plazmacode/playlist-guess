@@ -101,11 +101,7 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
     // Calculate total time taken from the moment it loaded to the moment they finally submitted/skipped
     const totalTimeMs = songStartTimeRef.current ? Date.now() - songStartTimeRef.current : 0;
 
-    // Sync the native <audio> player (revealed after guessing) to start exactly where the random snippet started, making it easy for the user to compare.
-    if (audioRef.current) {
-      audioRef.current.currentTime = snippetStart;
-    }
-    
+
     setResults(prev => [
       ...prev, 
       {
@@ -189,12 +185,40 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
       onFinish(results);
     }
   };
+
+  useEffect(() => {
+    if (!hasResolved || !audioRef.current) return;
+
+    const audioElement = audioRef.current;
+    let didSeek = false;
+
+    const trySeek = () => {
+      if (didSeek) return;
+      // HAVE_CURRENT_DATA (2)+ — the browser has decoded a frame and
+      // won't silently reset currentTime back to 0 anymore.
+      if (audioElement.readyState >= 2) {
+        audioElement.currentTime = snippetStart;
+        didSeek = true;
+      }
+    };
+
+    trySeek(); // in case it's already loaded enough
+
+    audioElement.addEventListener("loadeddata", trySeek);
+    audioElement.addEventListener("canplay", trySeek);
+
+    return () => {
+      audioElement.removeEventListener("loadeddata", trySeek);
+      audioElement.removeEventListener("canplay", trySeek);
+    };
+  }, [hasResolved, snippetStart, audioRef]);
+
   const currentResult = results[currentIndex];
   const earnedPoints = currentResult ? calculatePoints(currentResult) : 0;
   const currentTotalScore = results.reduce((sum, res) => sum + calculatePoints(res), 0);
 
   return (
-    <div className="flex flex-col items-center mt-10 px-80">
+    <div className="flex flex-col items-center mt-10 px-4 lg:px-80">
       <div className="flex justify-between w-full font-bold mb-4">
         <span>Song {currentIndex + 1} of {playlist.length}</span>
         <span>Attempt {hasResolved ? attemptStep + 1 : attemptStep + 1} of {maxAttempts}</span>
