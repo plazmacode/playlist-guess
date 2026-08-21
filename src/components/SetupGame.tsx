@@ -1,22 +1,43 @@
-import { useState, useRef, type DragEvent, type ChangeEvent } from "react";
+import { useState, useRef, type DragEvent, type ChangeEvent, useEffect } from "react";
 import { Button } from "@/components/ui/button"
+import type { ApiSong } from "@/hooks/useStreamingAPI";
 
 export interface ProcessedSong {
   id: string;
-  originalFile: File;
+  originalFile?: File;
   previewUrl: string;
   title: string;
 }
 
 interface SetupGameProps {
   onStart: (songs: ProcessedSong[]) => void;
+  status: boolean;
+  fetchSongs: () => void;
+  apiSongs: ApiSong[];
+  getStreamUrl: (id: number) => string;
 }
 
-export function SetupGame({ onStart }: SetupGameProps) {
+export function SetupGame({ onStart, status, fetchSongs, apiSongs, getStreamUrl }: SetupGameProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [uploadedSongs, setUploadedSongs] = useState<ProcessedSong[]>([]);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (status) {
+      fetchSongs();
+    }
+  }, [status, fetchSongs]);
+
+  const handleStartStreaming = () => {
+    const convertedSongs: ProcessedSong[] = apiSongs.map((song) => ({
+      id: song.id.toString(),
+      title: song.title,
+      previewUrl: getStreamUrl(song.id),
+    }));
+
+    onStart(convertedSongs);
+  };
 
   // --- Drag and Drop Handlers ---
   const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
@@ -53,15 +74,11 @@ export function SetupGame({ onStart }: SetupGameProps) {
   };
 
   const processFiles = (files: File[]) => {
-    // Filter to make sure they only uploaded audio files
     const audioFiles = files.filter(file => file.type.startsWith('audio/'));
 
     const newSongs: ProcessedSong[] = audioFiles.map((file) => {
-      // 1. Create a temporary local URL that the <audio> tag can read
       const previewUrl = URL.createObjectURL(file);
       
-      // 2. Clean up the filename to use as the answer 
-      // (e.g., "The Weeknd - Blinding Lights.mp3" -> "The Weeknd - Blinding Lights")
       const cleanTitle = file.name.replace(/\.[^/.]+$/, "");
 
       return {
@@ -74,11 +91,30 @@ export function SetupGame({ onStart }: SetupGameProps) {
 
     setUploadedSongs((prev) => [...prev, ...newSongs]);
   };
+  
+  // If the backend service is running we want to render a button to only use the songs from there.
+  const renderStreamingMode = () => {
+    if(apiSongs.length > 0) {
+      return (
+        <div>
+          <div className="flex flex-col items-center">
+            <p className="text-xl">Streaming available!!!</p>
+            <button onClick={handleStartStreaming} className="mt-4 bg-pink-600 px-8 py-3 hover:bg-pink-800 transition-colors">Start with with streaming</button>
+          </div>
+          <hr />
+        </div>
+      )
+    } else {
+      return <p className="text-4xl">no streaming service on :(</p>
+    }
+  }
+
 
   return (
     <div>
+      {renderStreamingMode()}
       <div className="flex justify-center items-center">
-        <h1 className="text-4xl mt-12 mb-4">Upload some songs :3</h1>
+        <h1 className="text-2xl mt-12 mb-4">Upload some songs :3</h1>
       </div>
       <div
       onClick={handleBoxClick}

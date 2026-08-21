@@ -1,53 +1,41 @@
-import { useState } from "react";
-import SetupGame, { type ProcessedSong } from "./components/SetupGame";
 import EndScreen from "./components/EndScreen";
-import { shuffleArray, type GameResult } from "./lib/game-utils";
 import Game from "./components/Game";
+import { useGameFlow } from "./hooks/useGameFlow";
+import SetupGame from "./components/SetupGame";
+import { useStreamingAPI } from "./hooks/useStreamingAPI";
 
 export function App() {
-  const [gameState, setGameState] = useState<"setup" | "playing" | "finished">("setup");
-  const [allSongs, setAllSongs] = useState<ProcessedSong[]>([]);
-  const [gamePlaylist, setGamePlaylist] = useState<ProcessedSong[]>([]);
+  const {
+    gameState,
+    allSongs,
+    gamePlaylist,
+    gameResults,
+    startGame,
+    finishGame,
+    restartGame
+  } = useGameFlow();
 
-  const [gameResults, setGameResults] = useState<GameResult[]>([]);
+  const {
+    status,
+    songs,
+    fetchSongs,
+    getStreamUrl
+  } = useStreamingAPI();
 
-  const handleStartGame = (uploadedSongs: ProcessedSong[]) => {
-    // 1. Save all songs for the suggestions dropdown
-    setAllSongs(uploadedSongs);
-
-    // 2. Shuffle and pick up to 10 songs
-    const shuffled = shuffleArray(uploadedSongs);
-    const selected = shuffled.slice(0, 10);
-    
-    setGamePlaylist(selected);
-    setGameState("playing");
-  };
-
-  const handleFinishGame = (results: GameResult[]) => {
-    setGameResults(results);
-    setGameState("finished");
+  const renderScreen = () => {
+    switch (gameState) {
+      case "setup":
+        return <SetupGame onStart={startGame} status={status} fetchSongs={fetchSongs} apiSongs={songs} getStreamUrl={getStreamUrl}/>;
+      case "playing":
+        return <Game playlist={gamePlaylist} allSongs={allSongs} onFinish={finishGame} />;
+      case "finished":
+        return <EndScreen results={gameResults} onRestart={restartGame} />;
+    }
   };
 
   return (
     <div>
-      {gameState === "setup" && (
-        <SetupGame onStart={handleStartGame} />
-      )}
-      
-      {gameState === "playing" && (
-        <Game 
-          playlist={gamePlaylist} 
-          allSongs={allSongs} 
-          onFinish={handleFinishGame} 
-        />
-      )}
-
-      {gameState === "finished" && (
-        <EndScreen 
-          results={gameResults} 
-          onRestart={() => setGameState("setup")} 
-        />
-      )}
+      {renderScreen()}
     </div>
   );
 }

@@ -46,7 +46,10 @@ export function useWebAudio(
       if (!audioCtxRef.current) return;
 
       try {
-        const arrayBuffer = await currentSong.originalFile.arrayBuffer();
+        const response = await fetch(currentSong.previewUrl);
+        if (!response.ok) throw new Error(`Failed to fetch audio: ${response.status}`);
+
+        const arrayBuffer = await response.arrayBuffer();
         const decodedData = await audioCtxRef.current.decodeAudioData(arrayBuffer);
 
         if (isCancelled) return;
