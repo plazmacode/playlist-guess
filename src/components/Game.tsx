@@ -20,9 +20,10 @@ interface GameProps {
   playlist: ProcessedSong[];
   allSongs: ProcessedSong[];
   onFinish: (results: GameResult[]) => void;
+  seed?: number
 }
 
-export default function Game({ playlist, allSongs, onFinish }: GameProps) {
+export default function Game({ playlist, allSongs, onFinish, seed }: GameProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [volume, setVolume] = useState(0.5);
 
@@ -60,6 +61,9 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
   // We use a custom Web Audio API hook here instead of standard HTML5 <audio> tags for the guessing phase.
   // Standard <audio> tags struggle to seek accurately within compressed VBR MP3s, often resulting in several seconds of silent playback.
   // The Web Audio API decodes the whole file into RAM upfront, allowing millisecond-perfect slices for our short intervals.
+
+  const songSeed = seed !== undefined ? seed + currentIndex : undefined;
+
   const { 
     isReady, 
     isPlaying, 
@@ -69,7 +73,7 @@ export default function Game({ playlist, allSongs, onFinish }: GameProps) {
     audioRef, 
     playbackEndedAtRef,
     resetPlayer
-  } = useWebAudio(currentSong, currentAllowedTime, volume, attemptStep, INTERVALS[INTERVALS.length - 1]);
+  } = useWebAudio(currentSong, currentAllowedTime, volume, attemptStep, INTERVALS[INTERVALS.length - 1], songSeed);
 
   // Start the master timer for this song as soon as the Web Audio API finishes decoding it
   useEffect(() => {

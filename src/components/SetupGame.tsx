@@ -10,7 +10,7 @@ export interface ProcessedSong {
 }
 
 interface SetupGameProps {
-  onStart: (songs: ProcessedSong[]) => void;
+  onStart: (songs: ProcessedSong[], seed?: number) => void;
   status: boolean;
   fetchSongs: () => void;
   apiSongs: ApiSong[];
@@ -20,7 +20,8 @@ interface SetupGameProps {
 export function SetupGame({ onStart, status, fetchSongs, apiSongs, getStreamUrl }: SetupGameProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [uploadedSongs, setUploadedSongs] = useState<ProcessedSong[]>([]);
-  
+  const [seedInput, setSeedInput] = useState("");
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -29,14 +30,36 @@ export function SetupGame({ onStart, status, fetchSongs, apiSongs, getStreamUrl 
     }
   }, [status, fetchSongs]);
 
-  const handleStartStreaming = () => {
+  const handleStartWithSeed = async () => {
     const convertedSongs: ProcessedSong[] = apiSongs.map((song) => ({
       id: song.id.toString(),
       title: song.title,
       previewUrl: getStreamUrl(song.id),
     }));
 
-    onStart(convertedSongs);
+    let activeSeed: number;
+
+    // Check if input is empty or invalid
+    if (seedInput.trim() === "") {
+      // Generates a random 6-digit number
+      activeSeed = Math.floor(100000 + Math.random() * 900000);
+      
+      try {
+        // copy to clipboard
+        await navigator.clipboard.writeText(activeSeed.toString());
+      } catch (err) {
+        console.error("Failed to copy seed to clipboard", err);
+      }
+    } else {
+      activeSeed = parseInt(seedInput, 10);
+      
+      // Fallback in case parsing fails
+      if (isNaN(activeSeed)) {
+        activeSeed = Math.floor(100000 + Math.random() * 900000);
+      }
+    }
+
+    onStart(convertedSongs, activeSeed);
   };
 
   // --- Drag and Drop Handlers ---
@@ -99,7 +122,22 @@ export function SetupGame({ onStart, status, fetchSongs, apiSongs, getStreamUrl 
         <div>
           <div className="flex flex-col items-center">
             <p className="text-xl">Streaming available!!!</p>
-            <button onClick={handleStartStreaming} className="mt-4 bg-pink-600 px-8 py-3 hover:bg-pink-800 transition-colors">Start with with streaming</button>
+            {/* Seed Input and Button Area */}
+            <div className="flex flex-col items-center bg-secondary/20 p-4 rounded-xl border border-border w-64">
+              <label className="text-sm mb-2 text-muted-foreground w-full text-center">
+                Have a seed? Enter it here:
+              </label>
+              <input 
+                type="number" 
+                placeholder="Leave empty for random..." 
+                value={seedInput}
+                onChange={(e) => setSeedInput(e.target.value)}
+                className="mb-3 px-3 py-2 rounded bg-background border border-input text-foreground w-full"
+              />
+              <button onClick={handleStartWithSeed} className="bg-pink-600 px-8 py-3 hover:bg-pink-800 transition-colors w-full rounded-md text-white flex items-center justify-center gap-2">
+                Start Game and copy seed
+              </button>
+            </div>
           </div>
           <hr />
         </div>
@@ -122,7 +160,7 @@ export function SetupGame({ onStart, status, fetchSongs, apiSongs, getStreamUrl 
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       className={`
-          h-[50vh] m-4 border-dashed border-5 rounded-xl flex flex-col justify-center items-center cursor-pointer transition-colors duration-200
+          h-[30vh] m-4 border-dashed border-5 rounded-xl flex flex-col justify-center items-center cursor-pointer transition-colors duration-200
           ${isDragging 
             ? "border-blue-500 bg-blue-50/10" // Visual feedback when dragging
             : "border-gray-300 hover:bg-gray-50/5 hover:border-gray-400"

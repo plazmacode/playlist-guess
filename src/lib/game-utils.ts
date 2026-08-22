@@ -82,13 +82,24 @@ export const calculatePoints = (result: GameResult) => {
   return points;
 };
 
+export function seededRandom(seed: number) {
+  return () => {
+    let t = (seed += 0x6D2B79F5);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 // Mathematically unbiased shuffle (Fisher-Yates algorithm)
-export const shuffleArray = <T,>(array: T[]): T[] => {
-  const newArray = [...array]; // Create a copy so we don't mutate the original
-  for (let i = newArray.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    // Swap elements
-    [newArray[i], newArray[j]] = [newArray[j], newArray[i]];
+export const shuffleArray = <T,>(array: T[], seed?: number): T[] => {
+  const shuffled = [...array];
+  const random = seed !== undefined ? seededRandom(seed) : Math.random;
+
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
   }
-  return newArray;
+
+  return shuffled;
 };

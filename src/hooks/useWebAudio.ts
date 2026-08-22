@@ -1,12 +1,14 @@
 import { useState, useRef, useEffect } from "react";
 import { type ProcessedSong } from "@/components/SetupGame";
+import { seededRandom } from "@/lib/game-utils";
 
 export function useWebAudio(
   currentSong: ProcessedSong,
   currentAllowedTime: number,
   volume: number,
   attemptStep: number,
-  maxSnippetDuration: number
+  maxSnippetDuration: number,
+  seed?: number
 ) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [snippetStart, setSnippetStart] = useState(0);
@@ -61,8 +63,13 @@ export function useWebAudio(
 
         let start = 0;
         if (maxStart > minStart) {
-          start = Math.random() * (maxStart - minStart) + minStart;
+          const random = seed !== undefined ? seededRandom(seed) : Math.random;
+
+          start = random() * (maxStart - minStart) + minStart;
+
         }
+
+
 
         setSnippetStart(start);
         setIsReady(true);

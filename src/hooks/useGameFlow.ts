@@ -8,16 +8,18 @@ export function useGameFlow() {
   const [gamePlaylist, setGamePlaylist] = useState<ProcessedSong[]>([]);
 
   const [gameResults, setGameResults] = useState<GameResult[]>([]);
+  const [gameSeed, setGameSeed] = useState<number | undefined>(undefined);
 
-  const handleStartGame = (uploadedSongs: ProcessedSong[]) => {
+  const handleStartGame = (uploadedSongs: ProcessedSong[], seed?: number) => {
     // 1. Save all songs for the suggestions dropdown
     setAllSongs(uploadedSongs);
 
     // 2. Shuffle and pick up to 10 songs
-    const shuffled = shuffleArray(uploadedSongs);
+    const shuffled = shuffleArray(uploadedSongs, seed);
     const selected = shuffled.slice(0, 10);
     
     setGamePlaylist(selected);
+    setGameSeed(seed);
     setGameState("playing");
   };
 
@@ -31,6 +33,7 @@ export function useGameFlow() {
     allSongs,
     gamePlaylist,
     gameResults,
+    gameSeed,
     startGame: handleStartGame,
     finishGame: handleFinishGame,
     restartGame: () => setGameState("setup")

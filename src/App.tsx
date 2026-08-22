@@ -10,6 +10,7 @@ export function App() {
     allSongs,
     gamePlaylist,
     gameResults,
+    gameSeed,
     startGame,
     finishGame,
     restartGame
@@ -27,7 +28,7 @@ export function App() {
       case "setup":
         return <SetupGame onStart={startGame} status={status} fetchSongs={fetchSongs} apiSongs={songs} getStreamUrl={getStreamUrl}/>;
       case "playing":
-        return <Game playlist={gamePlaylist} allSongs={allSongs} onFinish={finishGame} />;
+        return <Game playlist={gamePlaylist} allSongs={allSongs} onFinish={finishGame} seed={gameSeed}/>;
       case "finished":
         return <EndScreen results={gameResults} onRestart={restartGame} />;
     }
