@@ -10,13 +10,13 @@ export function useGameFlow() {
   const [gameResults, setGameResults] = useState<GameResult[]>([]);
   const [gameSeed, setGameSeed] = useState<number | undefined>(undefined);
 
-  const handleStartGame = (uploadedSongs: ProcessedSong[], seed?: number) => {
-    // 1. Save all songs for the suggestions dropdown
-    setAllSongs(uploadedSongs);
+  const handleStartGame = (resultSongs: ProcessedSong[], seed?: number, maxSongs: number = 10, allSongs?: ProcessedSong[]) => {
+    // 1. Save all songs for the suggestions dropdown. prefer all songs so it doesn't only show the songs that can be found in the current game.
+    setAllSongs(allSongs || resultSongs);
 
     // 2. Shuffle and pick up to 10 songs
-    const shuffled = shuffleArray(uploadedSongs, seed);
-    const selected = shuffled.slice(0, 10);
+    const shuffled = shuffleArray(resultSongs, seed);
+    const selected = shuffled.slice(0, maxSongs);
     
     setGamePlaylist(selected);
     setGameSeed(seed);

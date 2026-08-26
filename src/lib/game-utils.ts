@@ -103,3 +103,16 @@ export const shuffleArray = <T,>(array: T[], seed?: number): T[] => {
 
   return shuffled;
 };
+
+// Spreads 100% evenly across however many folders are selected, giving the
+// leftover percentage points (from integer division) to the first folders.
+export function distributeEvenly(folders: string[]): Record<string, number> {
+  if (folders.length === 0) return {};
+  const even = Math.floor(100 / folders.length);
+  const remainder = 100 - even * folders.length;
+  const result: Record<string, number> = {};
+  folders.forEach((folder, i) => {
+    result[folder] = even + (i < remainder ? 1 : 0);
+  });
+  return result;
+}

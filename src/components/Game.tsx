@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
-import { INTERVALS, calculatePoints, extractArtists, formatTime, type GameResult } from "@/lib/game-utils";
+import { INTERVALS, calculatePoints, extractArtists, formatTime, shuffleArray, type GameResult } from "@/lib/game-utils";
 import { useWebAudio } from "@/hooks/useWebAudio";
 
 interface GameProps {
@@ -86,16 +86,20 @@ export default function Game({ playlist, allSongs, onFinish, seed }: GameProps) 
   // Shadcn's underlying `cmdk` library renders ALL items to the DOM and just hides non-matches with CSS.
   // Rendering 1,000+ DOM nodes instantly freezes the browser, so we enforce a strict 50-item limit in memory.
   const visibleSongs = useMemo(() => {
-    if (!searchQuery) return allSongs.slice(0, 50); 
-    const searchTerms = searchQuery.toLowerCase().trim().split(/\s+/);
-    return allSongs
-      .filter((song) => {
-        const lowerTitle = song.title.toLowerCase();
-        // Require EVERY word the user typed to exist somewhere in the title (ignores exact ordering/hyphens)
-        return searchTerms.every(term => lowerTitle.includes(term));
-      })
-      .slice(0, 50); 
-  }, [allSongs, searchQuery]);
+  // 1. Shuffle the base list deterministically using the seed
+  const randomizedSongs = shuffleArray(allSongs, seed);
+
+  // 2. Filter if there is a query, otherwise take the first 50 from the randomized list
+  if (!searchQuery) return randomizedSongs.slice(0, 50);
+
+  const searchTerms = searchQuery.toLowerCase().trim().split(/\s+/);
+  return randomizedSongs
+    .filter((song) => {
+      const lowerTitle = song.title.toLowerCase();
+      return searchTerms.every((term) => lowerTitle.includes(term));
+    })
+    .slice(0, 50);
+}, [allSongs, searchQuery, seed]);
 
   const resolveSong = (correct: boolean, finalGuess: string | null, finalHistory: Array<'correct' | 'artist' | 'wrong' | 'skipped'>) => {
     pauseAudio();

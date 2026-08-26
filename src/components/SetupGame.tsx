@@ -1,6 +1,7 @@
 import { useState, useRef, type DragEvent, type ChangeEvent, useEffect } from "react";
 import { Button } from "@/components/ui/button"
-import type { ApiSong } from "@/hooks/useStreamingAPI";
+import type { ApiSong, FolderSplit } from "@/hooks/useStreamingAPI";
+import { distributeEvenly } from "@/lib/game-utils";
 
 export interface ProcessedSong {
   id: string;
@@ -10,25 +11,71 @@ export interface ProcessedSong {
 }
 
 interface SetupGameProps {
-  onStart: (songs: ProcessedSong[], seed?: number) => void;
+  onStart: (songs: ProcessedSong[], seed?: number, maxSongs?: number, apiSongs?: ProcessedSong[]) => void;
   status: boolean;
   fetchSongs: () => void;
   apiSongs: ApiSong[];
   getStreamUrl: (id: number) => string;
+  folders: string[];
+  fetchFolders: () => void;
+  fetchPlaylist: (request: { totalCount: number; splits: FolderSplit[] }) => Promise<{ songs: ApiSong[]; warnings: string[] } | null>;
 }
 
-export function SetupGame({ onStart, status, fetchSongs, apiSongs, getStreamUrl }: SetupGameProps) {
+
+export function SetupGame({ onStart, status, fetchSongs, apiSongs, getStreamUrl, folders, fetchFolders, fetchPlaylist }: SetupGameProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [uploadedSongs, setUploadedSongs] = useState<ProcessedSong[]>([]);
   const [seedInput, setSeedInput] = useState("");
+
+  const [mode, setMode] = useState<"quick" | "custom">("quick");
+  const [totalCount, setTotalCount] = useState(10);
+  const [splitPercentages, setSplitPercentages] = useState<Record<string, number>>({});
+  const [isBuildingPlaylist, setIsBuildingPlaylist] = useState(false);
+  const [playlistError, setPlaylistError] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (status) {
       fetchSongs();
+      fetchFolders();
     }
-  }, [status, fetchSongs]);
+  }, [status, fetchSongs, fetchFolders]);
+
+  const splitSum = Object.values(splitPercentages).reduce((a, b) => a + b, 0);
+  const selectedFolders = Object.keys(splitPercentages);
+ 
+  const toggleFolder = (folder: string) => {
+    setPlaylistError(null);
+    setSplitPercentages((prev) => {
+      const isSelected = folder in prev;
+      const nextFolders = isSelected
+        ? Object.keys(prev).filter((f) => f !== folder)
+        : [...Object.keys(prev), folder];
+      return distributeEvenly(nextFolders);
+    });
+  };
+ 
+  const updatePercentage = (folder: string, value: number) => {
+    setPlaylistError(null);
+    setSplitPercentages((prev) => ({ ...prev, [folder]: value }));
+  };
+ 
+  const resolveSeed = async (): Promise<number> => {
+    if (seedInput.trim() === "") {
+      const generated = Math.floor(100000 + Math.random() * 900000);
+      try {
+        await navigator.clipboard.writeText(generated.toString());
+      } catch (err) {
+        console.error("Failed to copy seed to clipboard", err);
+      }
+      return generated;
+    }
+ 
+    const parsed = parseInt(seedInput, 10);
+    return isNaN(parsed) ? Math.floor(100000 + Math.random() * 900000) : parsed;
+  };
+
 
   const handleStartWithSeed = async () => {
     const convertedSongs: ProcessedSong[] = apiSongs.map((song) => ({
@@ -61,6 +108,55 @@ export function SetupGame({ onStart, status, fetchSongs, apiSongs, getStreamUrl 
 
     onStart(convertedSongs, activeSeed);
   };
+
+  const handleStartCustomGame = async () => {
+    setPlaylistError(null);
+    
+    const splits: FolderSplit[] = selectedFolders
+      .map((folder) => ({ folder, percentage: splitPercentages[folder] }))
+      .filter((s) => s.percentage > 0);
+ 
+    if (splits.length === 0) {
+      setPlaylistError("Pick at least one folder.");
+      return;
+    }
+ 
+    if (Math.abs(splitSum - 100) > 0.5) {
+      setPlaylistError(`Percentages must add up to 100 (currently ${splitSum}).`);
+      return;
+    }
+ 
+    if (totalCount <= 0) {
+      setPlaylistError("Song count must be greater than 0.");
+      return;
+    }
+ 
+    setIsBuildingPlaylist(true);
+    const result = await fetchPlaylist({ totalCount, splits });
+    setIsBuildingPlaylist(false);
+ 
+    if (!result) {
+      setPlaylistError("Couldn't build a playlist from the server.");
+      return;
+    }
+ 
+    const resultSongs: ProcessedSong[] = result.songs.map((song) => ({
+      id: song.id.toString(),
+      title: song.title,
+      previewUrl: getStreamUrl(song.id),
+    }));
+ 
+    const activeSeed = await resolveSeed();
+    
+    const allSongs: ProcessedSong[] = apiSongs.map((song) => ({
+      id: song.id.toString(),
+      title: song.title,
+      previewUrl: getStreamUrl(song.id),
+    }));
+
+    onStart(resultSongs, activeSeed, resultSongs.length, allSongs);
+  };
+
 
   // --- Drag and Drop Handlers ---
   const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
@@ -114,30 +210,129 @@ export function SetupGame({ onStart, status, fetchSongs, apiSongs, getStreamUrl 
 
     setUploadedSongs((prev) => [...prev, ...newSongs]);
   };
+
+    const renderModeToggle = () => (
+    <div className="flex gap-2 mb-4">
+      <button
+        onClick={() => setMode("quick")}
+        className={`px-4 py-2 rounded-md transition-colors ${
+          mode === "quick" ? "bg-pink-600 text-white" : "bg-secondary/40 text-muted-foreground"
+        }`}
+      >
+        Quick Random
+      </button>
+      <button
+        onClick={() => setMode("custom")}
+        className={`px-4 py-2 rounded-md transition-colors ${
+          mode === "custom" ? "bg-pink-600 text-white" : "bg-secondary/40 text-muted-foreground"
+        }`}
+      >
+        Custom Split
+      </button>
+    </div>
+  );
+ 
+  const renderSeedInput = () => (
+    <div className="flex flex-col items-center bg-secondary/20 p-4 rounded-xl border border-border w-64">
+      <label className="text-sm mb-2 text-muted-foreground w-full text-center">
+        Have a seed? Enter it here:
+      </label>
+      <input
+        type="number"
+        placeholder="Leave empty for random..."
+        value={seedInput}
+        onChange={(e) => setSeedInput(e.target.value)}
+        className="mb-3 px-3 py-2 rounded bg-background border border-input text-foreground w-full"
+      />
+    </div>
+  );
+ 
+  const renderQuickMode = () => (
+    <div className="flex flex-col items-center gap-3">
+      {renderSeedInput()}
+      <button
+        onClick={handleStartWithSeed}
+        className="bg-pink-600 px-8 py-3 hover:bg-pink-800 transition-colors w-64 rounded-md text-white flex items-center justify-center gap-2"
+      >
+        Start Game and copy seed
+      </button>
+    </div>
+  );
+ 
+  const renderCustomMode = () => (
+    <div className="flex flex-col items-center gap-4 w-full">
+      {folders.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No folders found on the server.</p>
+      ) : (
+        <div className="bg-secondary/20 p-4 rounded-xl border border-border w-full max-w-md">
+          <p className="text-sm mb-3 text-muted-foreground">Pick folders to pull songs from:</p>
+          <div className="space-y-3">
+            {folders.map((folder) => {
+              const isSelected = folder in splitPercentages;
+              return (
+                <div key={folder} className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => toggleFolder(folder)}
+                    className="w-4 h-4"
+                  />
+                  <span className="flex-1 truncate">{folder}</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    disabled={!isSelected}
+                    value={isSelected ? splitPercentages[folder] : 0}
+                    onChange={(e) => updatePercentage(folder, Number(e.target.value))}
+                    className="w-20 px-2 py-1 rounded bg-background border border-input text-foreground text-right disabled:opacity-40"
+                  />
+                  <span className="text-sm text-muted-foreground w-4">%</span>
+                </div>
+              );
+            })}
+          </div>
+          <div className={`text-sm mt-3 text-right ${Math.abs(splitSum - 100) > 0.5 ? "text-red-400" : "text-green-400"}`}>
+            Total: {splitSum}%
+          </div>
+        </div>
+      )}
+ 
+      <div className="flex items-center gap-3">
+        <label className="text-sm text-muted-foreground">Number of songs:</label>
+        <input
+          type="number"
+          min={1}
+          value={totalCount}
+          onChange={(e) => setTotalCount(Number(e.target.value))}
+          className="w-20 px-2 py-1 rounded bg-background border border-input text-foreground"
+        />
+      </div>
+ 
+      {renderSeedInput()}
+ 
+      {playlistError && <p className="text-sm text-red-400">{playlistError}</p>}
+ 
+      <button
+        onClick={handleStartCustomGame}
+        disabled={isBuildingPlaylist}
+        className="bg-pink-600 px-8 py-3 hover:bg-pink-800 transition-colors w-64 rounded-md text-white flex items-center justify-center gap-2 disabled:opacity-50"
+      >
+        {isBuildingPlaylist ? "Building playlist..." : "Start Game and copy seed"}
+      </button>
+    </div>
+  );
+
   
   // If the backend service is running we want to render a button to only use the songs from there.
   const renderStreamingMode = () => {
-    if(apiSongs.length > 0) {
+    if (apiSongs.length > 0) {
       return (
         <div>
           <div className="flex flex-col items-center">
-            <p className="text-xl">Streaming available!!!</p>
-            {/* Seed Input and Button Area */}
-            <div className="flex flex-col items-center bg-secondary/20 p-4 rounded-xl border border-border w-64">
-              <label className="text-sm mb-2 text-muted-foreground w-full text-center">
-                Have a seed? Enter it here:
-              </label>
-              <input 
-                type="number" 
-                placeholder="Leave empty for random..." 
-                value={seedInput}
-                onChange={(e) => setSeedInput(e.target.value)}
-                className="mb-3 px-3 py-2 rounded bg-background border border-input text-foreground w-full"
-              />
-              <button onClick={handleStartWithSeed} className="bg-pink-600 px-8 py-3 hover:bg-pink-800 transition-colors w-full rounded-md text-white flex items-center justify-center gap-2">
-                Start Game and copy seed
-              </button>
-            </div>
+            <p className="text-xl mb-4">Streaming available!!!</p>
+            {renderModeToggle()}
+            {mode === "quick" ? renderQuickMode() : renderCustomMode()}
           </div>
           <hr />
         </div>
@@ -146,6 +341,7 @@ export function SetupGame({ onStart, status, fetchSongs, apiSongs, getStreamUrl 
       return <p className="text-4xl">no streaming service on :(</p>
     }
   }
+
 
 
   return (
