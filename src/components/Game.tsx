@@ -64,13 +64,14 @@ export default function Game({ playlist, allSongs, onFinish, seed }: GameProps) 
 
   const songSeed = seed !== undefined ? seed + currentIndex : undefined;
 
-  const { 
-    isReady, 
-    isPlaying, 
-    snippetStart, 
-    playSnippet, 
-    pauseAudio, 
-    audioRef, 
+  const {
+    isReady,
+    isPlaying,
+    snippetStart,
+    streamUrl,
+    playSnippet,
+    pauseAudio,
+    audioRef,
     playbackEndedAtRef,
     resetPlayer
   } = useWebAudio(currentSong, currentAllowedTime, volume, attemptStep, INTERVALS[INTERVALS.length - 1], songSeed);
@@ -257,8 +258,8 @@ export default function Game({ playlist, allSongs, onFinish, seed }: GameProps) 
 
       <audio
         ref={audioRef}
-        src={currentSong.previewUrl}
-        controls={hasResolved} 
+        src={streamUrl ?? undefined}
+        controls={hasResolved}
         className={`w-full my-4 ${hasResolved ? "block" : "hidden"}`}
       />
 

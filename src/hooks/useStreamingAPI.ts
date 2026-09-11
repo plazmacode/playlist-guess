@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { authFetch } from "@/lib/auth";
 
 export interface ApiSong {
   id: number;
@@ -34,7 +35,7 @@ export function useStreamingAPI() {
   useEffect(() => {
     const getAPIStatus = async() => {
       try {
-        const response = await fetch(`${baseUrl}/status`);
+        const response = await authFetch(`${baseUrl}/status`);
         console.log("API Status OK:", response.ok);
         setStatus(true);
       } catch(error) {
@@ -49,7 +50,7 @@ export function useStreamingAPI() {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${baseUrl}/songs`);
+      const response = await authFetch(`${baseUrl}/songs`);
       if (!response.ok) {
         throw new Error("Failed to fetch songs from the server.");
       }
@@ -65,7 +66,7 @@ export function useStreamingAPI() {
   
   const fetchFolders = useCallback(async () => {
     try {
-      const response = await fetch(`${baseUrl}/folders`);
+      const response = await authFetch(`${baseUrl}/folders`);
       if (!response.ok) {
         throw new Error("Failed to fetch folders from the server.");
       }
@@ -79,7 +80,7 @@ export function useStreamingAPI() {
   const fetchPlaylist = useCallback(async (request: PlaylistRequest): Promise<PlaylistResult | null> => {
     setError(null);
     try {
-      const response = await fetch(`${baseUrl}/playlist`, {
+      const response = await authFetch(`${baseUrl}/playlist`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request),

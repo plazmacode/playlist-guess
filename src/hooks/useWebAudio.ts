@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { type ProcessedSong } from "@/components/SetupGame";
 import { seededRandom } from "@/lib/game-utils";
+import { authFetch } from "@/lib/auth";
 
 export function useWebAudio(
   currentSong: ProcessedSong,
@@ -13,12 +14,14 @@ export function useWebAudio(
   const [isPlaying, setIsPlaying] = useState(false);
   const [snippetStart, setSnippetStart] = useState(0);
   const [isReady, setIsReady] = useState(false);
+  const [streamUrl, setStreamUrl] = useState<string | null>(null);
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const audioBufferRef = useRef<AudioBuffer | null>(null);
   const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
   const gainNodeRef = useRef<GainNode | null>(null);
-  
+  const objectUrlRef = useRef<string | null>(null);
+
   const audioRef = useRef<HTMLAudioElement>(null);
   const playbackEndedAtRef = useRef<number | null>(null);
 
@@ -26,6 +29,7 @@ export function useWebAudio(
     setIsReady(false);
     setSnippetStart(0);
     setIsPlaying(false);
+    setStreamUrl(null);
     playbackEndedAtRef.current = null;
   };
 
@@ -44,14 +48,29 @@ export function useWebAudio(
       sourceNodeRef.current.disconnect();
     }
 
+    setStreamUrl(null);
+
     const loadAndDecodeAudio = async () => {
       if (!audioCtxRef.current) return;
 
       try {
-        const response = await fetch(currentSong.previewUrl);
+        const response = await authFetch(currentSong.previewUrl);
         if (!response.ok) throw new Error(`Failed to fetch audio: ${response.status}`);
 
-        const arrayBuffer = await response.arrayBuffer();
+        // authFetch can't be used on a plain <audio src>, since custom headers (our JWT)
+        // can't be attached to it. We fetch the bytes once here and hand the <audio>
+        // element an object URL instead, so the full-song replay stays authenticated too.
+        const blob = await response.blob();
+        const objectUrl = URL.createObjectURL(blob);
+
+        if (isCancelled) {
+          URL.revokeObjectURL(objectUrl);
+          return;
+        }
+        objectUrlRef.current = objectUrl;
+        setStreamUrl(objectUrl);
+
+        const arrayBuffer = await blob.arrayBuffer();
         const decodedData = await audioCtxRef.current.decodeAudioData(arrayBuffer);
 
         if (isCancelled) return;
@@ -79,7 +98,13 @@ export function useWebAudio(
     };
 
     loadAndDecodeAudio();
-    return () => { isCancelled = true; };
+    return () => {
+      isCancelled = true;
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current);
+        objectUrlRef.current = null;
+      }
+    };
   }, [currentSong, maxSnippetDuration]);
 
   useEffect(() => {
@@ -136,6 +161,7 @@ export function useWebAudio(
     isReady,
     isPlaying,
     snippetStart,
+    streamUrl,
     playSnippet,
     pauseAudio,
     audioRef,

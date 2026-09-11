@@ -2,6 +2,7 @@ import { useState, useRef, type DragEvent, type ChangeEvent, useEffect } from "r
 import { Button } from "@/components/ui/button"
 import type { ApiSong, FolderSplit } from "@/hooks/useStreamingAPI";
 import { distributeEvenly } from "@/lib/game-utils";
+import { useAuthToken } from "@/lib/auth";
 
 export interface ProcessedSong {
   id: string;
@@ -34,13 +35,14 @@ export function SetupGame({ onStart, status, fetchSongs, apiSongs, getStreamUrl,
   const [playlistError, setPlaylistError] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const token = useAuthToken();
 
   useEffect(() => {
     if (status) {
       fetchSongs();
       fetchFolders();
     }
-  }, [status, fetchSongs, fetchFolders]);
+  }, [status, token, fetchSongs, fetchFolders]);
 
   const splitSum = Object.values(splitPercentages).reduce((a, b) => a + b, 0);
   const selectedFolders = Object.keys(splitPercentages);
