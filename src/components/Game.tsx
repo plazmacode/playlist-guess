@@ -126,8 +126,8 @@ export default function Game({ playlist, allSongs, onFinish, seed }: GameProps) 
   };
 
   const handleSubmit = () => {
-    if (!guess) return;
-    
+    if (!guess || !isReady) return;
+
     // If this is their first attempt, calculate their exact thinking time for the speed bonus.
     // We only trigger this if playbackEndedAtRef is populated (meaning they actually listened to the clip).
     if (attemptStep === 0 && playbackEndedAtRef.current && !firstAttemptThinkingTimeRef.current) {
@@ -163,6 +163,8 @@ export default function Game({ playlist, allSongs, onFinish, seed }: GameProps) 
   };
 
   const handleSkip = () => {
+    if (!isReady) return;
+
     const newHistory: Array<'correct' | 'artist' | 'wrong' | 'skipped'> = [...guessHistory, 'skipped'];
     setGuessHistory(newHistory);
 
@@ -352,10 +354,10 @@ export default function Game({ playlist, allSongs, onFinish, seed }: GameProps) 
 
         {!hasResolved ? (
           <div className="flex gap-4 w-full">
-            <Button onClick={handleSubmit} disabled={!guess} className="flex-1 h-12 text-lg bg-purple-800 text-white hover:bg-purple-900">
+            <Button onClick={handleSubmit} disabled={!guess || !isReady} className="flex-1 h-12 text-lg bg-purple-800 text-white hover:bg-purple-900">
               Submit Guess
             </Button>
-            <Button onClick={handleSkip} variant="secondary" className="w-32 h-12 text-lg">
+            <Button onClick={handleSkip} disabled={!isReady} variant="secondary" className="w-32 h-12 text-lg">
               {attemptStep < maxAttempts - 1 ? "Skip (+Time)" : "Give Up"}
             </Button>
           </div>

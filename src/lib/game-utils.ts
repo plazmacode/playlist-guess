@@ -62,7 +62,7 @@ export const calculatePoints = (result: GameResult) => {
   const baseScores = [90, 80, 70, 60, 50]; 
   const artistScores = [45, 40, 35, 30, 25]; 
   let points = 0;
-  const gracePeriodMs = 5000; // Time in ms for full bonus on first attempt
+  const gracePeriodMs = 10000; // Time in ms for full bonus on first attempt
 
   if (result.guessedCorrectly) {
     points = baseScores[result.attemptsUsed - 1] || 50;
