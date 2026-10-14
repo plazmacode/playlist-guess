@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { setToken, useAuthToken } from "@/lib/auth";
+import { isAdminToken, setToken, useAuthToken } from "@/lib/auth";
 
 interface LoginResponse {
   token: string;
@@ -42,5 +42,5 @@ export function useAuth() {
 
   const logout = useCallback(() => setToken(null), []);
 
-  return { token, isLoggedIn: !!token, isLoggingIn, error, login, logout };
+  return { token, isLoggedIn: !!token, isAdmin: isAdminToken(token), isLoggingIn, error, login, logout };
 }

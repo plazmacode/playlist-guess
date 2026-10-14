@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useSyncExternalStore, useState } from "react";
+import AdminPage from "./components/admin/AdminPage";
 import EndScreen from "./components/EndScreen";
 import Game from "./components/Game";
 import { useGameFlow } from "./hooks/useGameFlow";
@@ -15,9 +16,21 @@ import {
   DialogTrigger,
 } from "./components/ui/dialog";
 
+// Hash routing keeps the static hosting setup unchanged: "#/admin" opens the admin page.
+function useHash() {
+  return useSyncExternalStore(
+    (listener) => {
+      window.addEventListener("hashchange", listener);
+      return () => window.removeEventListener("hashchange", listener);
+    },
+    () => window.location.hash
+  );
+}
+
 export function App() {
-  const { isLoggedIn, logout } = useAuth();
+  const { isLoggedIn, isAdmin, logout } = useAuth();
   const [loginOpen, setLoginOpen] = useState(false);
+  const isAdminRoute = useHash() === "#/admin";
 
   const {
     gameState,
@@ -33,9 +46,9 @@ export function App() {
   const {
     status,
     songs,
-    folders,
+    playlists,
     fetchSongs,
-    fetchFolders,
+    fetchPlaylists,
     fetchPlaylist,
     getStreamUrl
   } = useStreamingAPI();
@@ -51,8 +64,8 @@ export function App() {
             fetchSongs={fetchSongs}
             apiSongs={songs}
             getStreamUrl={getStreamUrl}
-            folders={folders}
-            fetchFolders={fetchFolders}
+            playlists={playlists}
+            fetchPlaylists={fetchPlaylists}
             fetchPlaylist={fetchPlaylist}
           />
         );
@@ -66,7 +79,12 @@ export function App() {
 
   return (
     <div>
-      <div className="flex justify-end p-2">
+      <div className="flex justify-end gap-2 p-2">
+        {isAdmin && (
+          <Button asChild variant="outline" className="h-12 px-8 text-lg">
+            <a href={isAdminRoute ? "#" : "#/admin"}>{isAdminRoute ? "Back to game" : "Admin"}</a>
+          </Button>
+        )}
         {isLoggedIn ? (
           <Button className="h-12 px-8 text-lg bg-pink-600 hover:bg-pink-800 transition-colors text-white" onClick={logout}>
             Log out
@@ -87,7 +105,7 @@ export function App() {
           </Dialog>
         )}
       </div>
-      {renderScreen()}
+      {isAdminRoute ? <AdminPage /> : renderScreen()}
     </div>
   );
 }

@@ -33,6 +33,19 @@ export function useAuthToken() {
   );
 }
 
+// Reads the "role" claim from the JWT payload. Only used to decide what UI to show;
+// the API checks the role itself.
+export function isAdminToken(value: string | null) {
+  if (!value) return false;
+  try {
+    const payload = JSON.parse(atob(value.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+    const roles: unknown = payload.role;
+    return roles === "admin" || (Array.isArray(roles) && roles.includes("admin"));
+  } catch {
+    return false;
+  }
+}
+
 export async function authFetch(input: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers);
   if (token) {

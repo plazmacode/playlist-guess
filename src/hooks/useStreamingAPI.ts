@@ -7,14 +7,22 @@ export interface ApiSong {
   fileName: string;
 }
 
-export interface FolderSplit {
-  folder: string;
+export interface ApiPlaylist {
+  id: number;
+  name: string;
+  description: string;
+  isPublic: boolean;
+  songCount: number;
+}
+
+export interface PlaylistSplit {
+  playlistId: number;
   percentage: number;
 }
- 
+
 export interface PlaylistRequest {
   totalCount: number;
-  splits: FolderSplit[];
+  splits: PlaylistSplit[];
 }
  
 export interface PlaylistResult {
@@ -26,7 +34,7 @@ export interface PlaylistResult {
 export function useStreamingAPI() {
   const [status, setStatus] = useState(Boolean);
   const [songs, setSongs] = useState<ApiSong[]>([]);
-  const [folders, setFolders] = useState<string[]>([]);
+  const [playlists, setPlaylists] = useState<ApiPlaylist[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
@@ -64,14 +72,14 @@ export function useStreamingAPI() {
     }
   }, [baseUrl]);
   
-  const fetchFolders = useCallback(async () => {
+  const fetchPlaylists = useCallback(async () => {
     try {
-      const response = await authFetch(`${baseUrl}/folders`);
+      const response = await authFetch(`${baseUrl}/playlists`);
       if (!response.ok) {
-        throw new Error("Failed to fetch folders from the server.");
+        throw new Error("Failed to fetch playlists from the server.");
       }
-      const data: string[] = await response.json();
-      setFolders(data);
+      const data: ApiPlaylist[] = await response.json();
+      setPlaylists(data);
     } catch (err) {
       console.error(err);
     }
@@ -113,11 +121,11 @@ export function useStreamingAPI() {
   return {
     status,
     songs,
-    folders,
+    playlists,
     isLoading,
     error,
     fetchSongs,
-    fetchFolders,
+    fetchPlaylists,
     fetchPlaylist,
     getStreamUrl
   };
